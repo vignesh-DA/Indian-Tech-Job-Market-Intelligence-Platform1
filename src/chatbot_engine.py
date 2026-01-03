@@ -9,17 +9,24 @@ Handles 4 categories:
 
 import json
 import re
+import requests
+import os
 from typing import Dict, List, Tuple, Any
 from datetime import datetime
 
 class ChatbotEngine:
     def __init__(self):
         """Initialize the chatbot engine with intent patterns"""
+        # OpenRouter API configuration
+        self.openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
+        self.openrouter_url = "https://openrouter.ai/api/v1/chat/completions"
+        self.model_name = "google/gemini-3-flash-preview"  # Using Gemini 3 with reasoning
         self.intent_patterns = {
             # Category 1: User Profiling
             'skill_assessment': [
                 r'assess.*skill', r'evaluate.*skill', r'skill.*strength', r'my.*skill',
-                r'what.*skill.*have', r'analyze.*my.*profile', r'profile.*assessment'
+                r'what.*skill.*have', r'analyze.*my.*profile', r'profile.*assessment',
+                r'skill.*require', r'skill.*need', r'what.*skill.*[a-z]+', r'required.*skill'
             ],
             'resume_parser': [
                 r'parse.*resume', r'upload.*resume', r'resume.*analysis', r'extract.*resume',
@@ -32,8 +39,10 @@ class ChatbotEngine:
             
             # Category 2: Job Intelligence
             'job_explanation': [
-                r'explain.*job', r'what.*role', r'job.*responsibilities', r'job.*requirement',
-                r'understand.*job', r'tell.*about.*job', r'describe.*position'
+                r'explain.*job', r'what.*role', r'job.*responsib', r'job.*require',
+                r'understand.*job', r'tell.*about.*job', r'describe.*position',
+                r'role.*explain', r'what.*[a-z]+.*engineer', r'what.*[a-z]+.*developer',
+                r'what.*data.*science', r'what.*job.*[a-z]+'
             ],
             'job_comparison': [
                 r'compare.*job', r'compare.*role', r'difference.*job', r'which.*job.*better',
@@ -55,7 +64,8 @@ class ChatbotEngine:
             ],
             'learning_roadmap': [
                 r'learning.*roadmap', r'learn.*course', r'learning.*path', r'how.*learn',
-                r'resource.*learn', r'course.*recommend', r'training.*plan'
+                r'resource.*learn', r'course.*recommend', r'training.*plan',
+                r'step.*by.*step', r'python', r'guide.*learn', r'teach.*me'
             ],
             
             # Category 4: Market Insights
@@ -81,16 +91,22 @@ class ChatbotEngine:
         message_lower = user_message.lower()
         max_confidence = 0
         detected_intent = 'general'
-        detected_category = 'general'
+        detected_category = 'General'
         
         for intent, patterns in self.intent_patterns.items():
             for pattern in patterns:
-                if re.search(pattern, message_lower):
-                    confidence = len(message_lower) / max(len(message_lower), 100)
+                match = re.search(pattern, message_lower)
+                if match:
+                    # Confidence based on pattern match quality
+                    confidence = 0.8 + (0.2 * (len(match.group(0)) / len(message_lower)))
                     if confidence > max_confidence:
                         max_confidence = confidence
                         detected_intent = intent
                         detected_category = self._get_category(intent)
+        
+        # If no pattern matched, return general with low confidence
+        if detected_intent == 'general':
+            max_confidence = 0.1
         
         return detected_intent, detected_category, max_confidence
     
@@ -118,37 +134,28 @@ User Profile:
 - Skills: {', '.join(user_profile.get('skills', [])[:10]) or 'Not specified'}
 - Total Matched Jobs: {user_profile.get('total_matched_jobs', 0)}
 
-Job Market Data:
-- Total opportunities available for this profile
-- Salary insights and market trends
-- High-demand skills in the region
-- Career growth opportunities
-
-Current Context:
-- Answering questions about career development
-- Providing personalized recommendations
-- Based on Indian tech job market data
 """
         
-        if recommendations:
-            top_jobs = recommendations[:3]
-            context += "\nTop Job Recommendations:\n"
-            for i, job in enumerate(top_jobs, 1):
-                context += f"{i}. {job.get('title', 'Unknown')} at {job.get('company', 'Unknown')} - {job.get('match_score', 0)}% match\n"
+        if recommendations and len(recommendations) > 0:
+            context += "Top Job Recommendations:\n"
+            for i, job in enumerate(recommendations[:3], 1):
+                context += f"{i}. {job.get('Job Title', 'N/A')} at {job.get('Company', 'N/A')}\n"
+                context += f"   Location: {job.get('Location', 'N/A')}\n"
         
         return context
     
     def create_system_prompt(self) -> str:
         """Create system prompt for Gemini API"""
-        return """You are an AI Career Assistant specialized in the Indian tech job market. Your role is to help professionals:
+        return """You are an expert Career Assistant for tech professionals in India. Your role is to:
 
-1. **User Profiling**: Assess skills, parse resumes, identify career goals
-2. **Job Intelligence**: Explain job roles, compare opportunities, provide company insights
-3. **Career Guidance**: Plan career progression, identify skill gaps, provide learning roadmaps
-4. **Market Insights**: Share salary information, trending skills, market statistics
+1. SKILL ASSESSMENT: Analyze technical skills, identify strengths and gaps
+2. JOB INTELLIGENCE: Explain roles, compare positions, provide company insights
+3. CAREER GUIDANCE: Create personalized career paths and learning roadmaps
+4. MARKET INSIGHTS: Share salary data, trending skills, and market stats
 
 Guidelines:
-- Be specific and actionable in your advice
+- Be conversational, helpful, and encouraging
+- Provide actionable, specific advice
 - Reference the user's current profile and skills
 - Provide concrete examples from the Indian tech market
 - Suggest learning resources when appropriate
@@ -162,16 +169,16 @@ Always tailor advice to the user's current experience level and location."""
     def generate_response(self, user_message: str, user_profile: Dict, 
                          conversation_history: List[Dict], 
                          recommendations: List[Dict] = None,
-                         gemini_api=None) -> Dict[str, Any]:
+                         use_openrouter: bool = True) -> Dict[str, Any]:
         """
-        Generate chatbot response using Gemini API
+        Generate chatbot response using OpenRouter API (Gemini 2.5 Flash)
         
         Args:
             user_message: User's question
             user_profile: User's profile data
             conversation_history: Previous messages
             recommendations: Current job recommendations
-            gemini_api: Gemini API client (google.generativeai)
+            use_openrouter: Whether to use OpenRouter API (True) or fallback (False)
         
         Returns:
             Dict with response and metadata
@@ -182,45 +189,78 @@ Always tailor advice to the user's current experience level and location."""
         # Build context
         context = self.build_context(user_profile, recommendations)
         
-        # Prepare conversation for API
-        conversation = []
-        for msg in conversation_history[-4:]:  # Keep last 4 messages for context
-            conversation.append({
-                'role': 'user' if msg['role'] == 'user' else 'model',
-                'parts': [msg['content']]
-            })
+        # Prepare conversation for OpenRouter API (OpenAI-compatible format)
+        messages = [
+            {"role": "system", "content": self.create_system_prompt()},
+            {"role": "system", "content": context}
+        ]
         
-        # Add current message
-        conversation.append({
-            'role': 'user',
-            'parts': [f"{context}\n\nUser Question: {user_message}"]
-        })
+        # Add conversation history (last 4 messages) - preserve reasoning_details if present
+        for msg in conversation_history[-4:]:
+            message_obj = {
+                "role": "user" if msg['role'] == 'user' else "assistant",
+                "content": msg['content']
+            }
+            # Preserve reasoning details from previous responses
+            if msg['role'] == 'bot' and 'reasoning_details' in msg:
+                message_obj['reasoning_details'] = msg['reasoning_details']
+            messages.append(message_obj)
+        
+        # Add current user message
+        messages.append({"role": "user", "content": user_message})
         
         try:
-            if gemini_api:
-                # Use Gemini API
-                model = gemini_api.GenerativeModel(
-                    model_name='gemini-pro',
-                    system_instruction=self.create_system_prompt()
+            if use_openrouter and self.openrouter_api_key:
+                # Use OpenRouter API with Gemini 2.5 Flash
+                headers = {
+                    "Authorization": f"Bearer {self.openrouter_api_key}",
+                    "HTTP-Referer": "http://localhost:5000",  # Your app URL
+                    "X-Title": "Career Assistant Chatbot",
+                    "Content-Type": "application/json"
+                }
+                
+                payload = {
+                    "model": self.model_name,
+                    "messages": messages,
+                    "max_tokens": 500,
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                    "reasoning": {"enabled": True}  # Enable step-by-step reasoning for complex career questions
+                }
+                
+                from src.logger import logging
+                logging.info(f"🔹 Sending request to OpenRouter - Model: {self.model_name}")
+                
+                response = requests.post(
+                    self.openrouter_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30
                 )
                 
-                # Send message to Gemini
-                response = model.generate_content(
-                    conversation[-1]['parts'][0],  # Just send current message
-                    generation_config=gemini_api.types.GenerationConfig(
-                        max_output_tokens=500,
-                        temperature=0.7,
+                logging.info(f"🔹 OpenRouter response: Status {response.status_code}")
+                
+                if response.status_code == 200:
+                    result = response.json()
+                    message_data = result['choices'][0]['message']
+                    bot_message = message_data.get('content', '')
+                    reasoning_details = message_data.get('reasoning_details')  # Extract reasoning if present
+                    logging.info(f"✅ AI response received: {bot_message[:100]}...")
+                else:
+                    # API error - log details and use fallback
+                    logging.error(f"❌ OpenRouter API error: Status {response.status_code}")
+                    logging.error(f"Response: {response.text}")
+                    bot_message = self._generate_fallback_response(
+                        intent, category, user_message, user_profile
                     )
-                )
-                
-                bot_message = response.text
+                    bot_message = f"⚠️ API temporarily unavailable. Here's my response:\n\n{bot_message}"
             else:
-                # Fallback: Generate contextual response without API
+                # No API key or API disabled - use fallback
                 bot_message = self._generate_fallback_response(
                     intent, category, user_message, user_profile
                 )
             
-            return {
+            response_data = {
                 'success': True,
                 'message': bot_message,
                 'intent': intent,
@@ -228,145 +268,55 @@ Always tailor advice to the user's current experience level and location."""
                 'confidence': confidence,
                 'timestamp': datetime.now().isoformat()
             }
+            # Include reasoning details if available (for conversation history)
+            if 'reasoning_details' in locals():
+                response_data['reasoning_details'] = reasoning_details
+            return response_data
         
         except Exception as e:
+            # Error - use fallback
+            bot_message = self._generate_fallback_response(
+                intent, category, user_message, user_profile
+            )
             return {
-                'success': False,
-                'message': f'Error generating response: {str(e)}',
-                'error': str(e),
-                'timestamp': datetime.now().isoformat()
+                'success': True,
+                'message': bot_message,
+                'intent': intent,
+                'category': category,
+                'confidence': confidence,
+                'timestamp': datetime.now().isoformat(),
+                'error': str(e)
             }
     
     def _generate_fallback_response(self, intent: str, category: str, 
                                    user_message: str, user_profile: Dict) -> str:
-        """Generate fallback response when API is not available"""
+        """Generate smart fallback response that addresses the specific user question"""
         
-        responses = {
-            'skill_assessment': f"""Based on your profile as a {user_profile.get('role', 'developer')} with {user_profile.get('experience', 'experience')}:
-
-Your Current Strengths:
-- {', '.join(user_profile.get('skills', ['Technical knowledge'])[:3])}
-
-Top Recommendations:
-1. Deepen expertise in your primary skills
-2. Learn complementary technologies
-3. Build projects to showcase skills
-
-Next Steps:
-- Take online courses for skill enhancement
-- Contribute to open-source projects
-- Build a strong portfolio""",
-            
-            'career_goal': f"""Your Career Path Suggestions:
-
-Current Level: {user_profile.get('experience', 'Mid-level')}
-
-Potential Career Progressions:
-1. Specialist Role - Deepen in current skills
-2. Leadership Track - Move to team lead/manager
-3. Architect Role - System design and strategy
-4. Entrepreneurship - Start your own venture
-
-Location: {user_profile.get('location', 'India')}
-Market Demand: High for your profile
-
-Recommended Timeline:
-- 6 months: Build next skill
-- 1 year: Consider role change
-- 2-3 years: Senior/Lead position""",
-            
-            'job_explanation': """Job Role Breakdown:
-
-Responsibilities:
-- Design and development
-- System optimization
-- Team collaboration
-- Code review and mentoring
-
-Requirements:
-- Core technical skills
-- Problem-solving ability
-- Communication skills
-- Industry experience
-
-Salary Range (India):
-- Entry: ₹15-25 LPA
-- Mid: ₹25-50 LPA
-- Senior: ₹50+ LPA""",
-            
-            'salary_info': f"""Market Salary Insights for {user_profile.get('location', 'India')}:
-
-Your Experience Level: {user_profile.get('experience', 'Not specified')}
-
-Salary Ranges:
-- Bangalore: ₹20-60 LPA
-- Mumbai: ₹18-55 LPA
-- Hyderabad: ₹18-50 LPA
-- Pune: ₹16-45 LPA
-
-Factors Affecting Salary:
-- Years of experience
-- Technical skills
-- Company size/profile
-- Location
-- Negotiation skills""",
-            
-            'skill_trends': """Most Trending Skills (2026):
-
-High Demand:
-1. AI/Machine Learning
-2. Cloud Technologies (AWS, Azure, GCP)
-3. DevOps & Kubernetes
-4. System Design
-5. Full-stack Development
-
-Emerging:
-- Generative AI
-- Web3 Technologies
-- Advanced Data Engineering
-- Cybersecurity
-
-Learning Timeline:
-- 3 months per skill
-- 6 months to proficiency
-- 1 year to expertise""",
-            
-            'learning_roadmap': f"""Learning Path for {user_profile.get('experience', 'your level')}:
-
-Phase 1 (Months 1-2):
-- Fundamentals and concepts
-- Online courses and tutorials
-- Small projects
-
-Phase 2 (Months 3-4):
-- Intermediate projects
-- Real-world applications
-- Peer review
-
-Phase 3 (Months 5-6):
-- Advanced topics
-- Portfolio projects
-- Job preparation
-
-Resources:
-- Udemy, Coursera, Pluralsight
-- YouTube channels
-- Documentation and blogs
-- Open-source contributions""",
-            
-            'general': f"""Hello! I'm your Career Assistant. I can help you with:
-
-📊 Skill Assessment - Analyze your strengths and gaps
-💼 Job Intelligence - Understand roles and opportunities
-🎯 Career Guidance - Plan your career path
-📈 Market Insights - Salary trends and demand
-
-Your Current Profile:
-- Role: {user_profile.get('role', 'Not specified')}
-- Experience: {user_profile.get('experience', 'Not specified')}
-- Location: {user_profile.get('location', 'Not specified')}
-
-What would you like to explore?"""
-        }
+        msg_lower = user_message.lower()
+        role = user_profile.get('role', 'developer')
+        exp = user_profile.get('experience', 'mid-level')
+        location = user_profile.get('location', 'India')
         
-        return responses.get(intent, responses['general'])
+        # Generic greeting/general response
+        return f"""Hey! I'm your Career Assistant powered by AI!
+
+Based on your question, I can help you with:
+
+📊 **SKILL ASSESSMENT** - Analyze strengths, identify gaps
+💼 **JOB INSIGHTS** - Understand roles, requirements, companies
+🎯 **CAREER GROWTH** - Build roadmaps, plan progression
+📈 **MARKET DATA** - Salary trends, hot skills, job market
+
+YOUR PROFILE:
+• Role: {role.title()}
+• Experience: {exp}
+• Location: {location}
+• Opportunities: {user_profile.get('total_matched_jobs', 0)} matching jobs
+
+💡 **ASK ME**:
+• "What skills do I need for data science?"
+• "What's the salary for senior engineers?"
+• "Show me YouTube channels for learning ML"
+• "How do I transition to backend development?"
+
+What would be most helpful for you?"""

@@ -24,4 +24,4 @@ python-dotenv==1.0.0
 python-decouple==3.8
 
 # AI/ML APIs
-google-generativeai==0.3.0
+google-generativeai==0.8.3

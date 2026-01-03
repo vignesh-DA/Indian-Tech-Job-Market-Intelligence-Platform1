@@ -505,18 +505,19 @@ a:hover {
     background: white;
     border-radius: var(--border-radius-lg);
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-    display: none;
+    display: flex;
     flex-direction: column;
     z-index: 998;
     transition: all 0.3s ease;
     opacity: 0;
-    transform: translateY(20px);
+    transform: translateY(20px) scale(0.9);
+    pointer-events: none;
 }
 
 .chatbot-widget.active {
-    display: flex;
     opacity: 1;
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
 }
 
 /* Chatbot Header */

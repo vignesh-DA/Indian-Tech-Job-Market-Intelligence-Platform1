@@ -23,24 +23,27 @@ function initializeChatbot() {
     }
 
     // Toggle chatbot widget
-    chatbotButton.addEventListener('click', function() {
+    chatbotButton.addEventListener('click', function(e) {
+        e.stopPropagation();
         chatbotOpen = !chatbotOpen;
         
         if (chatbotOpen) {
+            console.log('Opening chatbot');
             chatbotWidget.classList.add('active');
-            chatbotButton.style.display = 'none';
-            chatbotInput.focus();
+            setTimeout(() => {
+                if (chatbotInput) chatbotInput.focus();
+            }, 100);
         } else {
+            console.log('Closing chatbot');
             chatbotWidget.classList.remove('active');
-            chatbotButton.style.display = 'flex';
         }
     });
 
     // Close chatbot
-    chatbotClose.addEventListener('click', function() {
+    chatbotClose.addEventListener('click', function(e) {
+        e.stopPropagation();
         chatbotOpen = false;
         chatbotWidget.classList.remove('active');
-        chatbotButton.style.display = 'flex';
     });
 
     // Send message on button click
@@ -93,8 +96,15 @@ function sendChatbotMessage() {
             conversation_history: chatHistory
         })
     })
-    .then(response => response.json())
+    .then(response => {
+        console.log('Response status:', response.status);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return response.json();
+    })
     .then(data => {
+        console.log('Chat response data:', data);
         removeTypingIndicator();
         
         if (data.success) {
@@ -104,11 +114,12 @@ function sendChatbotMessage() {
             chatHistory.push({role: 'bot', content: data.message});
             saveChatHistory();
         } else {
+            console.error('API returned error:', data.message);
             addChatMessage('Sorry, I encountered an error. Please try again.', 'bot');
         }
     })
     .catch(error => {
-        console.error('Chat error:', error);
+        console.error('Chat error details:', error);
         removeTypingIndicator();
         addChatMessage('Sorry, I could not process your request. Please try again.', 'bot');
     })

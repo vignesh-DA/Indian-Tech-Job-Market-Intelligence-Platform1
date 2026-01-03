@@ -32,13 +32,8 @@ from src.chatbot_engine import ChatbotEngine
 from src.logger import logging
 import sys
 
-# Try to import Gemini API - optional for fallback mode
-try:
-    import google.generativeai as genai
-    GEMINI_AVAILABLE = True
-except ImportError:
-    GEMINI_AVAILABLE = False
-    logging.warning("Gemini API not installed. Using fallback responses.")
+# OpenRouter API is configured in ChatbotEngine via .env
+OPENROUTER_AVAILABLE = True  # Will check in ChatbotEngine initialization
 
 # Load environment variables
 load_dotenv()
@@ -714,21 +709,20 @@ def get_last_updated():
 # Initialize chatbot engine
 chatbot = ChatbotEngine()
 
-# Setup Gemini API if available
-if GEMINI_AVAILABLE:
-    gemini_api_key = os.getenv('GEMINI_API_KEY')
-    if gemini_api_key:
-        genai.configure(api_key=gemini_api_key)
-        logging.info("✅ Gemini API configured successfully")
-    else:
-        logging.warning("⚠️ GEMINI_API_KEY not found in .env - using fallback responses")
-        GEMINI_AVAILABLE = False
+# Check if OpenRouter API key is configured
+openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
+if openrouter_api_key:
+    logging.info("✅ OpenRouter API key found - Gemini 2.5 Flash enabled")
+    OPENROUTER_AVAILABLE = True
+else:
+    logging.warning("⚠️ OPENROUTER_API_KEY not found in .env - using fallback responses")
+    OPENROUTER_AVAILABLE = False
 
 @app.route('/api/chat', methods=['POST'])
 def chat():
     """
     Chatbot endpoint
-    Handles conversation with Gemini API integration
+    Handles conversation with OpenRouter Gemini 2.5 Flash integration
     
     Request JSON:
     {
@@ -767,24 +761,14 @@ def chat():
         except:
             recommendations = []
         
-        # Generate response
-        if GEMINI_AVAILABLE:
-            response = chatbot.generate_response(
-                user_message=user_message,
-                user_profile=user_profile,
-                conversation_history=conversation_history,
-                recommendations=recommendations,
-                gemini_api=genai
-            )
-        else:
-            # Use fallback without Gemini API
-            response = chatbot.generate_response(
-                user_message=user_message,
-                user_profile=user_profile,
-                conversation_history=conversation_history,
-                recommendations=recommendations,
-                gemini_api=None
-            )
+        # Generate response using OpenRouter
+        response = chatbot.generate_response(
+            user_message=user_message,
+            user_profile=user_profile,
+            conversation_history=conversation_history,
+            recommendations=recommendations,
+            use_openrouter=OPENROUTER_AVAILABLE
+        )
         
         if response['success']:
             logging.info(f"✅ Chat response generated - Intent: {response['intent']}")
@@ -803,7 +787,9 @@ def chat():
             }), 500
     
     except Exception as e:
+        import traceback
         logging.error(f"Chat endpoint error: {str(e)}")
+        logging.error(f"Traceback: {traceback.format_exc()}")
         return jsonify({
             'success': False,
             'message': f'Error processing chat: {str(e)}'
