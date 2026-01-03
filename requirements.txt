@@ -22,3 +22,6 @@ APScheduler==3.10.4
 # Utilities
 python-dotenv==1.0.0
 python-decouple==3.8
+
+# AI/ML APIs
+google-generativeai==0.3.0

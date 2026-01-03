@@ -28,8 +28,17 @@ from src.analytics import (
     get_role_distribution,
     calculate_summary_stats
 )
+from src.chatbot_engine import ChatbotEngine
 from src.logger import logging
 import sys
+
+# Try to import Gemini API - optional for fallback mode
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+    logging.warning("Gemini API not installed. Using fallback responses.")
 
 # Load environment variables
 load_dotenv()
@@ -696,6 +705,108 @@ def get_last_updated():
         return jsonify({
             'success': False,
             'message': str(e)
+        }), 500
+
+# ========================
+# CHATBOT ENDPOINT
+# ========================
+
+# Initialize chatbot engine
+chatbot = ChatbotEngine()
+
+# Setup Gemini API if available
+if GEMINI_AVAILABLE:
+    gemini_api_key = os.getenv('GEMINI_API_KEY')
+    if gemini_api_key:
+        genai.configure(api_key=gemini_api_key)
+        logging.info("✅ Gemini API configured successfully")
+    else:
+        logging.warning("⚠️ GEMINI_API_KEY not found in .env - using fallback responses")
+        GEMINI_AVAILABLE = False
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """
+    Chatbot endpoint
+    Handles conversation with Gemini API integration
+    
+    Request JSON:
+    {
+        "message": "user message",
+        "user_profile": {
+            "role": "role",
+            "experience": "experience",
+            "location": "location",
+            "skills": ["skill1", "skill2"],
+            "total_matched_jobs": 24
+        },
+        "conversation_history": [
+            {"role": "user", "content": "message"},
+            {"role": "bot", "content": "response"}
+        ]
+    }
+    """
+    try:
+        data = request.get_json()
+        user_message = data.get('message', '').strip()
+        user_profile = data.get('user_profile', {})
+        conversation_history = data.get('conversation_history', [])
+        
+        if not user_message:
+            return jsonify({
+                'success': False,
+                'message': 'Message cannot be empty'
+            }), 400
+        
+        logging.info(f"🤖 Chat request: {user_message[:100]}")
+        
+        # Get current job recommendations for context
+        try:
+            jobs = load_recent_jobs()
+            recommendations = jobs.to_dict('records')[:5] if not jobs.empty else []
+        except:
+            recommendations = []
+        
+        # Generate response
+        if GEMINI_AVAILABLE:
+            response = chatbot.generate_response(
+                user_message=user_message,
+                user_profile=user_profile,
+                conversation_history=conversation_history,
+                recommendations=recommendations,
+                gemini_api=genai
+            )
+        else:
+            # Use fallback without Gemini API
+            response = chatbot.generate_response(
+                user_message=user_message,
+                user_profile=user_profile,
+                conversation_history=conversation_history,
+                recommendations=recommendations,
+                gemini_api=None
+            )
+        
+        if response['success']:
+            logging.info(f"✅ Chat response generated - Intent: {response['intent']}")
+            return jsonify({
+                'success': True,
+                'message': response['message'],
+                'intent': response['intent'],
+                'category': response['category'],
+                'confidence': response['confidence']
+            })
+        else:
+            logging.error(f"Chat error: {response.get('error')}")
+            return jsonify({
+                'success': False,
+                'message': response['message']
+            }), 500
+    
+    except Exception as e:
+        logging.error(f"Chat endpoint error: {str(e)}")
+        return jsonify({
+            'success': False,
+            'message': f'Error processing chat: {str(e)}'
         }), 500
 
 # ========================

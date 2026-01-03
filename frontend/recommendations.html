@@ -190,6 +190,55 @@
         </div>
     </footer>
 
+    <!-- Floating Chatbot Button & Widget -->
+    <div id="chatbot-button" class="chatbot-button" title="Chat with AI Assistant">
+        <i class="fas fa-comments"></i>
+    </div>
+
+    <div id="chatbot-widget" class="chatbot-widget">
+        <!-- Chatbot Header -->
+        <div class="chatbot-header">
+            <div class="chatbot-title">
+                <i class="fas fa-robot"></i>
+                <span>Career Assistant</span>
+            </div>
+            <button id="chatbot-close" class="chatbot-close" title="Close chat">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <!-- Chatbot Messages Area -->
+        <div id="chatbot-messages" class="chatbot-messages">
+            <div class="chatbot-message bot-message">
+                <div class="message-content">
+                    <p>👋 Hi! I'm your Career Assistant. I can help you with:</p>
+                    <ul style="margin-top: 8px; margin-left: 16px; font-size: 13px;">
+                        <li>💼 Understanding job opportunities</li>
+                        <li>🎯 Planning your career path</li>
+                        <li>📚 Building missing skills</li>
+                        <li>📊 Market insights & salary info</li>
+                    </ul>
+                    <p style="margin-top: 8px; font-size: 12px; opacity: 0.8;">What can I help you with?</p>
+                </div>
+                <div class="message-time">Just now</div>
+            </div>
+        </div>
+
+        <!-- Chatbot Input Area -->
+        <div class="chatbot-input-area">
+            <input 
+                type="text" 
+                id="chatbot-input" 
+                class="chatbot-input" 
+                placeholder="Type your question..." 
+                autocomplete="off"
+            >
+            <button id="chatbot-send" class="chatbot-send" title="Send message">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="/assets/js/config.js"></script>
     <script src="/assets/js/api.js"></script>
