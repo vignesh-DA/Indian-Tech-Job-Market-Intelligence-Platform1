@@ -124,6 +124,9 @@ class JobRecommendationEngine:
             # Create results dataframe
             results_df = self.jobs_df.copy()
             results_df['match_score'] = (final_scores * 100).round(2)
+            results_df['skills_match'] = (skills_similarity * 100).round(2)
+            results_df['experience_match'] = (experience_match * 100).round(2)
+            results_df['location_match'] = (location_match * 100).round(2)
             
             # Calculate matched and missing skills
             results_df['matched_skills'] = results_df['skills'].apply(

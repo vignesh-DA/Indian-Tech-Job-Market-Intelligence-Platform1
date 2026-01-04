@@ -100,6 +100,7 @@ function setupFormListeners() {
     const skillInput = DOM.byId('skillInput');
     const addSkillBtn = DOM.byId('addSkillBtn');
     const matchScoreFilter = DOM.byId('matchScoreFilter');
+    const maxRecommendationsSlider = DOM.byId('maxRecommendationsSlider');
     const fetchJobsBtn = DOM.byId('fetchJobsBtn');
 
     // Add skill on Enter key or button click
@@ -127,6 +128,13 @@ function setupFormListeners() {
         });
     }
 
+    // Max recommendations slider listener
+    if (maxRecommendationsSlider) {
+        maxRecommendationsSlider.addEventListener('input', function(e) {
+            DOM.byId('maxRecommendationsValue').textContent = e.target.value;
+        });
+    }
+
     // Fetch jobs button
     if (fetchJobsBtn) {
         fetchJobsBtn.addEventListener('click', async function(e) {
@@ -140,6 +148,15 @@ function setupFormListeners() {
         profileForm.addEventListener('submit', async function(e) {
             e.preventDefault();
             await handleGetRecommendations();
+        });
+    }
+
+    // Clear button listener
+    const clearFormBtn = DOM.byId('clearFormBtn');
+    if (clearFormBtn) {
+        clearFormBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            clearAllFields();
         });
     }
 }
@@ -194,6 +211,56 @@ function renderSkillsTags() {
         });
         skillsTags.appendChild(tag);
     });
+}
+
+// Clear All Form Fields
+function clearAllFields() {
+    // Clear skills
+    userSkills = [];
+    DOM.byId('skillInput').value = '';
+    renderSkillsTags();
+
+    // Reset all select dropdowns
+    const roleSelect = DOM.byId('roleSelect');
+    if (roleSelect) roleSelect.value = '';
+
+    const experienceSelect = DOM.byId('experienceSelect');
+    if (experienceSelect) experienceSelect.value = '';
+
+    const locationSelect = DOM.byId('locationSelect');
+    if (locationSelect) locationSelect.value = '';
+
+    // Reset all sliders and filters
+    const matchScoreFilter = DOM.byId('matchScoreFilter');
+    if (matchScoreFilter) {
+        matchScoreFilter.value = '0';
+        DOM.byId('matchScoreValue').textContent = '0';
+    }
+
+    const maxRecommendationsSlider = DOM.byId('maxRecommendationsSlider');
+    if (maxRecommendationsSlider) {
+        maxRecommendationsSlider.value = '10';
+        DOM.byId('maxRecommendationsValue').textContent = '10';
+    }
+
+    // Reset checkboxes
+    const locationMatchFilter = DOM.byId('locationMatchFilter');
+    if (locationMatchFilter) locationMatchFilter.checked = false;
+
+    const skillsMatchFilter = DOM.byId('skillsMatchFilter');
+    if (skillsMatchFilter) skillsMatchFilter.checked = false;
+
+    // Clear recommendations display
+    const recommendationsDiv = DOM.byId('recommendationsDiv');
+    if (recommendationsDiv) {
+        recommendationsDiv.innerHTML = '';
+    }
+
+    // Clear saved profile from localStorage
+    localStorage.removeItem('userProfile');
+
+    // Show success message
+    Alert.success('All fields cleared');
 }
 
 // Handle Get Recommendations
@@ -252,6 +319,10 @@ async function handleGetRecommendations() {
     const experienceSelect = DOM.byId('experienceSelect');
     const locationSelect = DOM.byId('locationSelect');
     const recommendationsContainer = DOM.byId('recommendationsContainer');
+    const matchScoreFilter = DOM.byId('matchScoreFilter');
+    const locationMatchFilter = DOM.byId('locationMatchFilter');
+    const skillsMatchFilter = DOM.byId('skillsMatchFilter');
+    const maxRecommendationsSlider = DOM.byId('maxRecommendationsSlider');
 
     // Validate
     if (!roleSelect.value) {
@@ -278,29 +349,56 @@ async function handleGetRecommendations() {
         // Show loading
         recommendationsContainer.innerHTML = '<div class="spinner" style="margin: var(--spacing-2xl) 0;"></div>';
 
+        // Get max recommendations value
+        const maxRecommendations = parseInt(maxRecommendationsSlider.value) || 10;
+
         const userProfile = {
             role: roleSelect.value,
             experience: experienceSelect.value,
             location: locationSelect.value,
             skills: userSkills,
             preferred_locations: [locationSelect.value],
+            top_n: maxRecommendations  // Pass max recommendations
         };
 
         // Save profile
         Storage.set(STORAGE_KEYS.USER_PROFILE, userProfile);
 
         // Get recommendations
-        const recommendations = await API.getRecommendations(userProfile);
+        let recommendations = await API.getRecommendations(userProfile);
+
+        // Apply filters if enabled
+        if (recommendations && recommendations.length > 0) {
+            // Filter by match score
+            const minMatchScore = parseInt(matchScoreFilter.value) || 0;
+            recommendations = recommendations.filter(job => (job.match_score || 0) >= minMatchScore);
+            
+            // Filter by location match only
+            if (locationMatchFilter && locationMatchFilter.checked) {
+                recommendations = recommendations.filter(job => {
+                    const locationScore = job.location_match || 0;
+                    return locationScore >= 80; // Only exact location matches
+                });
+            }
+            
+            // Filter by skills match only
+            if (skillsMatchFilter && skillsMatchFilter.checked) {
+                recommendations = recommendations.filter(job => {
+                    const skillsScore = job.skills_match || 0;
+                    return skillsScore >= 80; // Only strong skill matches
+                });
+            }
+        }
 
         if (recommendations && recommendations.length > 0) {
             renderRecommendations(recommendations);
-            Alert.success('Recommendations loaded successfully!');
+            Alert.success(`Loaded ${recommendations.length} recommendations!`);
         } else {
             recommendationsContainer.innerHTML = `
                 <div class="card">
                     <div class="card-body" style="text-align: center;">
                         <p style="color: var(--text-secondary); margin: var(--spacing-xl) 0;">
-                            No recommendations found. Try adjusting your criteria.
+                            No recommendations found. Try adjusting your filters.
                         </p>
                     </div>
                 </div>

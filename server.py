@@ -406,6 +406,10 @@ def get_job_recommendations():
     try:
         data = request.get_json()
         
+        # Get max recommendations (default 10, max 25)
+        top_n = min(int(data.get('top_n', 10)), 25)
+        top_n = max(top_n, 1)  # Minimum 1
+        
         user_profile = {
             'skills': data.get('skills', []),
             'role': data.get('role', 'Software Engineer'),
@@ -434,8 +438,8 @@ def get_job_recommendations():
         except Exception as save_error:
             logging.warning(f"Could not save model cache: {save_error}")
         
-        # Get recommendations
-        recommendations = recommendation_engine.calculate_match(user_profile, top_n=10)
+        # Get recommendations with specified top_n
+        recommendations = recommendation_engine.calculate_match(user_profile, top_n=top_n)
         
         # Convert DataFrame to list of dicts for JSON serialization
         recommendations_list = []
@@ -456,6 +460,9 @@ def get_job_recommendations():
                     'experience': row['experience'],
                     'salary': row['salary'],
                     'match_score': float(row['match_score']),
+                    'skills_match': float(row.get('skills_match', 0)),
+                    'experience_match': float(row.get('experience_match', 0)),
+                    'location_match': float(row.get('location_match', 0)),
                     'matched_skills': matched_skills,
                     'missing_skills': missing_skills,
                     'description': row['description'][:200] + '...' if len(str(row['description'])) > 200 else row['description'],
@@ -520,8 +527,14 @@ def get_salary_trends():
     try:
         days = request.args.get('days', 30, type=int)
         group_by = request.args.get('group_by', 'location')
+        location = request.args.get('location', '', type=str)
         
         jobs_df = load_recent_jobs(days=days)
+        
+        # Filter by location if provided
+        if location and location != 'All':
+            from src.analytics import filter_jobs_by_location
+            jobs_df = filter_jobs_by_location(jobs_df, location)
         
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})
@@ -551,8 +564,14 @@ def get_skills():
     try:
         days = request.args.get('days', 30, type=int)
         top_n = request.args.get('top_n', 15, type=int)
+        location = request.args.get('location', '', type=str)
         
         jobs_df = load_recent_jobs(days=days)
+        
+        # Filter by location if provided
+        if location and location != 'All':
+            from src.analytics import filter_jobs_by_location
+            jobs_df = filter_jobs_by_location(jobs_df, location)
         
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})
@@ -579,8 +598,14 @@ def get_roles():
     try:
         days = request.args.get('days', 30, type=int)
         top_n = request.args.get('top_n', 10, type=int)
+        location = request.args.get('location', '', type=str)
         
         jobs_df = load_recent_jobs(days=days)
+        
+        # Filter by location if provided
+        if location and location != 'All':
+            from src.analytics import filter_jobs_by_location
+            jobs_df = filter_jobs_by_location(jobs_df, location)
         
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})
@@ -606,8 +631,14 @@ def get_exp_dist():
     """Get experience level distribution"""
     try:
         days = request.args.get('days', 30, type=int)
+        location = request.args.get('location', '', type=str)
         
         jobs_df = load_recent_jobs(days=days)
+        
+        # Filter by location if provided
+        if location and location != 'All':
+            from src.analytics import filter_jobs_by_location
+            jobs_df = filter_jobs_by_location(jobs_df, location)
         
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})
@@ -633,8 +664,14 @@ def get_location_stats():
     """Get job statistics by location"""
     try:
         days = request.args.get('days', 30, type=int)
+        location = request.args.get('location', '', type=str)
         
         jobs_df = load_recent_jobs(days=days)
+        
+        # Filter by location if provided
+        if location and location != 'All':
+            from src.analytics import filter_jobs_by_location
+            jobs_df = filter_jobs_by_location(jobs_df, location)
         
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})
@@ -662,8 +699,14 @@ def get_trends():
     """Get job posting trends over time"""
     try:
         days = request.args.get('days', 30, type=int)
+        location = request.args.get('location', '', type=str)
         
         jobs_df = load_recent_jobs(days=days)
+        
+        # Filter by location if provided
+        if location and location != 'All':
+            from src.analytics import filter_jobs_by_location
+            jobs_df = filter_jobs_by_location(jobs_df, location)
         
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})

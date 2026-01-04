@@ -115,10 +115,15 @@
                                 <div id="skillsTags" style="display: flex; flex-wrap: wrap; gap: var(--spacing-sm);"></div>
                             </div>
 
-                            <!-- Submit Button -->
-                            <button type="submit" class="btn btn-primary" style="width: 100%; background: linear-gradient(135deg, var(--primary-color), #6366f1);">
-                                <i class="fas fa-wand-magic-sparkles"></i> Get Recommendations
-                            </button>
+                            <!-- Submit and Clear Buttons -->
+                            <div style="display: flex; gap: var(--spacing-md);">
+                                <button type="submit" class="btn btn-primary" style="flex: 1; background: linear-gradient(135deg, var(--primary-color), #6366f1);">
+                                    <i class="fas fa-wand-magic-sparkles"></i> Get Recommendations
+                                </button>
+                                <button type="button" id="clearFormBtn" class="btn btn-secondary" style="flex: 1;">
+                                    <i class="fas fa-redo"></i> Clear
+                                </button>
+                            </div>
                         </form>
 
                         <!-- Smart Filters -->
@@ -151,6 +156,18 @@
                                     <input type="checkbox" id="skillsMatchFilter" style="margin-right: 6px;">
                                     Skills Match Only
                                 </label>
+                            </div>
+
+                            <!-- Number of Recommendations -->
+                            <div style="margin-top: var(--spacing-xl); padding-top: var(--spacing-lg); border-top: 1px solid var(--border-color);">
+                                <label class="form-label" style="display: flex; align-items: center; gap: 6px; margin-bottom: var(--spacing-md);">
+                                    <i class="fas fa-list-ol" style="color: var(--primary-color);"></i>
+                                    <span>Max Recommendations</span>
+                                </label>
+                                <input type="range" id="maxRecommendationsSlider" min="1" max="25" value="10" class="form-input" style="padding: 4px; cursor: pointer;">
+                                <p style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; text-align: center;">
+                                    Show up to <strong id="maxRecommendationsValue">10</strong> jobs
+                                </p>
                             </div>
                         </div>
                     </div>
