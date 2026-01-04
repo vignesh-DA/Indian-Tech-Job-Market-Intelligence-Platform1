@@ -32,8 +32,8 @@ from src.chatbot_engine import ChatbotEngine
 from src.logger import logging
 import sys
 
-# OpenRouter API is configured in ChatbotEngine via .env
-OPENROUTER_AVAILABLE = True  # Will check in ChatbotEngine initialization
+# Google Gemini API is configured in ChatbotEngine via .env
+GEMINI_AVAILABLE = True  # Will be set based on API key availability
 
 # Load environment variables
 load_dotenv()
@@ -722,7 +722,7 @@ else:
 def chat():
     """
     Chatbot endpoint
-    Handles conversation with OpenRouter Gemini 2.5 Flash integration
+    Handles conversation with Google Gemini API integration
     
     Request JSON:
     {
@@ -742,7 +742,7 @@ def chat():
     """
     try:
         data = request.get_json()
-        user_message = data.get('message', '').strip()
+        user_message = data.get('message', '').strip() or data.get('user_message', '').strip()
         user_profile = data.get('user_profile', {})
         conversation_history = data.get('conversation_history', [])
         
@@ -754,20 +754,23 @@ def chat():
         
         logging.info(f"🤖 Chat request: {user_message[:100]}")
         
-        # Get current job recommendations for context
+        # Get current job recommendations for context (skip if error)
+        recommendations = []
         try:
             jobs = load_recent_jobs()
-            recommendations = jobs.to_dict('records')[:5] if not jobs.empty else []
-        except:
-            recommendations = []
+            if not jobs.empty:
+                recommendations = jobs.to_dict('records')[:5]
+        except Exception as rec_error:
+            logging.warning(f"⚠️ Could not load recommendations: {str(rec_error)}")
+            # Continue without recommendations
         
-        # Generate response using OpenRouter
+        # Generate response using Google Gemini API (with OpenRouter fallback)
         response = chatbot.generate_response(
             user_message=user_message,
             user_profile=user_profile,
             conversation_history=conversation_history,
             recommendations=recommendations,
-            use_openrouter=OPENROUTER_AVAILABLE
+            use_gemini=GEMINI_AVAILABLE
         )
         
         if response['success']:

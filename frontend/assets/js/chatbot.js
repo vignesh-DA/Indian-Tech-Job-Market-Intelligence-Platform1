@@ -202,12 +202,17 @@ function loadChatHistory() {
         const saved = localStorage.getItem('chatbot_history');
         if (saved) {
             chatHistory = JSON.parse(saved);
-            // Reload messages in UI (skip initial greeting)
+            // Restore chat history from localStorage
+            // Don't manipulate DOM here - messages will be displayed when user opens chatbot
             const messagesContainer = document.getElementById('chatbot-messages');
             
-            chatHistory.forEach(msg => {
-                addChatMessage(msg.content, msg.role);
-            });
+            // Clear container and reload messages to avoid duplicates
+            if (messagesContainer) {
+                messagesContainer.innerHTML = '';
+                chatHistory.forEach(msg => {
+                    addChatMessage(msg.content, msg.role);
+                });
+            }
         }
     } catch (error) {
         console.warn('Could not load chat history:', error);

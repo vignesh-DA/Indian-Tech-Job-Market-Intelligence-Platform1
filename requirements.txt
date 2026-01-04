@@ -6,8 +6,9 @@ Flask-CORS==4.0.0
 pandas==2.1.4
 numpy==1.26.2
 
-# Machine Learning
+# Machine Learning & NLP
 scikit-learn==1.3.2
+spacy>=3.7.2
 
 # Data Visualization
 plotly==5.18.0
