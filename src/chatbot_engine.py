@@ -1,6 +1,6 @@
 """
 Chatbot Engine for Career Assistant
-Uses NLP for intelligent intent detection
+Uses NLP for intelligent intent detection + CSV data analysis
 """
 
 import json
@@ -10,17 +10,23 @@ from typing import Dict, List, Tuple, Any
 from datetime import datetime
 import google.generativeai as genai
 import numpy as np
+import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
+from src.data_loader import load_recent_jobs
 
 class ChatbotEngine:
     def __init__(self):
-        """Initialize the chatbot engine with NLP-based intent detection"""
+        """Initialize the chatbot engine with NLP-based intent detection + CSV data"""
         # Google Gemini API configuration
         self.gemini_api_key = os.getenv('GEMINI_API_KEY')
         
         # Model configuration
         self.model_name = 'gemini-2.5-flash'
+        
+        # Load job data from CSV
+        self.jobs_df = load_recent_jobs()
+        self.data_available = len(self.jobs_df) > 0
         
         # Intent training data - examples for each intent
         self.intent_training_data = {
@@ -514,17 +520,26 @@ Provide a helpful, specific response focused on career growth and skill developm
                     
                 except Exception as gemini_error:
                     logging.warning(f"⚠️ Google Gemini API failed: {str(gemini_error)}")
-                    logging.info(f"Using fallback response...")
+                    logging.info(f"Trying CSV data analysis...")
+                    # Try CSV data analysis first
+                    csv_response = self.analyze_csv_data(intent, user_message, user_profile)
+                    if csv_response:
+                        bot_message = csv_response
+                    else:
+                        bot_message = self._generate_fallback_response(
+                            intent, category, user_message, user_profile
+                        )
+            
+            else:
+                # No Gemini key available - try CSV analysis first
+                logging.warning(f"⚠️ Gemini API not configured. Trying CSV analysis...")
+                csv_response = self.analyze_csv_data(intent, user_message, user_profile)
+                if csv_response:
+                    bot_message = csv_response
+                else:
                     bot_message = self._generate_fallback_response(
                         intent, category, user_message, user_profile
                     )
-            
-            else:
-                # No Gemini key available - use fallback
-                logging.warning(f"⚠️ Gemini API not configured. Using fallback response.")
-                bot_message = self._generate_fallback_response(
-                    intent, category, user_message, user_profile
-                )
             
             # Apply humanization to ensure consistent friendly tone
             bot_message = self.humanize_ai_text(bot_message)
@@ -559,15 +574,64 @@ Provide a helpful, specific response focused on career growth and skill developm
                                    user_message: str, user_profile: Dict) -> str:
         """Generate smart fallback response that addresses the specific user intent"""
         
+        import random
+        
         msg_lower = user_message.lower()
         role = user_profile.get('role', 'developer')
         exp = user_profile.get('experience', 'mid-level')
         location = user_profile.get('location', 'India')
         intent, category, _ = self.detect_intent(user_message, use_ai=False)
         
+        # Varied opening phrases (different for each intent)
+        openings = {
+            'learning_roadmap': [
+                "That's a smart approach to growth!",
+                "Building a solid learning path is key to success.",
+                "Let me guide you through a structured learning roadmap.",
+                "Great question! Here's how to build your skills systematically."
+            ],
+            'career_goal': [
+                "I love your ambition!",
+                "Let's map out your career trajectory.",
+                "Excellent question about your career growth!",
+                "Planning ahead is always smart."
+            ],
+            'job_explanation': [
+                "Let me break down this role for you.",
+                "Great role choice! Here's what you need to know.",
+                "That's an interesting career path.",
+                "Let me explain what this position entails."
+            ],
+            'salary_info': [
+                "Salary expectations are important!",
+                "Let me share the real numbers with you.",
+                "Here's what you can expect earning-wise.",
+                "Great question about compensation!"
+            ],
+            'skill_trends': [
+                "The tech landscape is changing fast!",
+                "Here are the skills everyone's looking for right now.",
+                "Let me share what's trending in tech.",
+                "Here are the most in-demand skills today."
+            ],
+            'skill_assessment': [
+                "Let's assess where you stand!",
+                "Understanding your strengths is crucial.",
+                "Here's how to evaluate your skill set.",
+                "Let me help you identify your strengths and gaps."
+            ],
+            'company_info': [
+                "Great question about companies!",
+                "Let me share insights about that organization.",
+                "Here's what you should know about that company.",
+                "That's a solid company to target!"
+            ]
+        }
+        
         # Intent-specific fallback responses
         if intent == 'learning_roadmap':
-            return f"""Great! Let me help you build a learning roadmap.
+            opening = random.choice(openings.get('learning_roadmap', openings['learning_roadmap']))
+            return f"""{opening}
 
 For a structured learning path, you typically need:
 • Foundation: Programming basics & data structures
@@ -576,33 +640,35 @@ For a structured learning path, you typically need:
 • Advanced: Deep learning, model optimization, deployment
 
 Recommended resources:
-• YouTube: Andrew Ng's Machine Learning course, StatQuest with Josh Starmer
-• Courses: Coursera ML Specialization, Udacity ML Nanodegree
-• Books: "Hands-On Machine Learning" by Aurélien Géron
-• Practice: Kaggle competitions for real-world experience
+📺 YouTube: Andrew Ng's Machine Learning course, StatQuest with Josh Starmer
+📚 Courses: Coursera ML Specialization, Udacity ML Nanodegree
+📖 Books: "Hands-On Machine Learning" by Aurélien Géron
+🏆 Practice: Kaggle competitions for real-world experience
 
 Timeline: Typically 6-12 months with consistent learning.
 
-What specific area would you like to focus on first?"""
+What area interests you most?"""
         
         elif intent == 'career_goal':
-            return f"""Excellent! Let me help you plan your career direction.
+            opening = random.choice(openings.get('career_goal', openings['career_goal']))
+            return f"""{opening}
 
 Key considerations for your next role:
-• Your current skills and experience level
+• Your current skills and experience level ({exp} as {role.title()})
 • Target companies and their requirements
 • Salary expectations and growth potential
 • Learning gap between your skills and target role
 
-For {role.title()} with {exp} experience in {location}:
-• Immediate opportunities (0-3 months): Senior positions, specialist roles
-• Mid-term (3-6 months): Leadership, architecture positions
-• Long-term (6-12 months): Manager, technical lead, principal roles
+For you in {location}:
+📈 Quick wins (0-3 months): Senior positions, specialist roles
+⏱️ Mid-term (3-6 months): Leadership, architecture positions
+🎯 Long-term (6-12 months): Manager, technical lead, principal roles
 
-What type of role are you targeting? Tell me more about your goals!"""
+What type of role are you targeting?"""
         
         elif intent == 'job_explanation':
-            return f"""Let me explain this role for you.
+            opening = random.choice(openings.get('job_explanation', openings['job_explanation']))
+            return f"""{opening}
 
 Typically, this role involves:
 • Core responsibilities and daily tasks
@@ -611,61 +677,96 @@ Typically, this role involves:
 • Typical company structure and reporting lines
 
 For you as a {exp} {role.title()} in {location}:
-• Expected salary range based on your profile
-• Common interview questions and preparation
-• Required skills to stand out
+💰 Expected salary range based on your profile
+❓ Common interview questions and preparation
+⭐ Required skills to stand out
 
-Which specific aspect would you like to know more about?"""
+Which aspect interests you most?"""
         
         elif intent == 'salary_info':
-            return f"""Let me share some salary insights for {location}.
+            opening = random.choice(openings.get('salary_info', openings['salary_info']))
+            return f"""{opening}
 
-For {role.title()} with {exp} experience:
-• Entry-level: ₹3-6 LPA
-• Mid-level: ₹8-15 LPA
-• Senior: ₹15-25 LPA
-• Lead/Manager: ₹20-40 LPA
+For {role.title()} with {exp} experience in {location}:
+💼 Entry-level: ₹3-6 LPA
+🔧 Mid-level: ₹8-15 LPA
+👔 Senior: ₹15-25 LPA
+🏆 Lead/Manager: ₹20-40 LPA
 
 Factors that influence salary:
-• Company size and funding stage
-• Years of experience and expertise
-• Specialized skills (Cloud, AI/ML, DevOps)
-• Negotiation and timing
-• Location and remote work policies
+🏢 Company size and funding stage
+📊 Years of experience and expertise
+🎓 Specialized skills (Cloud, AI/ML, DevOps)
+💬 Negotiation and timing
+📍 Location and remote work policies
 
-What specific role or skill area interests you?"""
+Curious about a specific role?"""
         
         elif intent == 'skill_trends':
-            return f"""Here are the hottest skills right now in {location}:
+            opening = random.choice(openings.get('skill_trends', openings['skill_trends']))
+            return f"""{opening}
 
-HIGH DEMAND:
+🔥 HIGH DEMAND:
 • Cloud: AWS, Azure, GCP
 • AI/ML: Python, TensorFlow, PyTorch
 • Backend: Java, Go, Node.js
 • DevOps: Kubernetes, Docker, Terraform
 
-EMERGING:
+🚀 EMERGING:
 • Large Language Models (LLMs)
 • Prompt Engineering
 • Full-stack Cloud Development
 • Data Engineering
 
-EVERGREEN:
+⏳ EVERGREEN:
 • System Design & Architecture
 • Problem-solving & Algorithms
 • Communication & Collaboration
 
-Which skills match your career goals?"""
+Which skills match your goals?"""
         
-        # Default fallback - generic greeting
-        return f"""Hey! I'm your Career Assistant powered by AI!
+        elif intent == 'skill_assessment':
+            opening = random.choice(openings.get('skill_assessment', openings['skill_assessment']))
+            return f"""{opening}
 
-Based on your question, I can help you with:
+Your current profile:
+• Role: {role.title()}
+• Experience: {exp}
+• Location: {location}
 
-SKILL ASSESSMENT - Analyze strengths, identify gaps
-JOB INSIGHTS - Understand roles, requirements, companies
-CAREER GROWTH - Build roadmaps, plan progression
-MARKET DATA - Salary trends, hot skills, job market
+To assess your skills, consider:
+✅ What you can do well RIGHT NOW
+❌ What you struggle with
+⏳ What you want to learn next
+🎯 What market demands for your target role
+
+Quick assessment tips:
+1. Compare your skills against job postings
+2. Identify the gap (2-3 months to close?)
+3. Create a focused learning plan
+4. Build a portfolio to showcase
+
+What specific skills would you like to improve?"""
+        
+        # Default fallback - generic but varied
+        default_openings = [
+            "Great question!",
+            "That's an interesting topic!",
+            "Let me help with that.",
+            "I've got some insights for you.",
+            "That's a common question among professionals!",
+            "Perfect timing for this question."
+        ]
+        opening = random.choice(default_openings)
+        
+        return f"""{opening}
+
+I can help you with:
+
+📊 SKILL ASSESSMENT - Analyze strengths, identify gaps
+💼 JOB INSIGHTS - Understand roles, requirements, companies
+🎯 CAREER GROWTH - Build roadmaps, plan progression
+📈 MARKET DATA - Salary trends, hot skills, job market
 
 YOUR PROFILE:
 • Role: {role.title()}
@@ -673,10 +774,356 @@ YOUR PROFILE:
 • Location: {location}
 • Opportunities: {user_profile.get('total_matched_jobs', 0)} matching jobs
 
-ASK ME:
+🤔 TRY ASKING ME:
 • "What skills do I need for data science?"
 • "What's the salary for senior engineers?"
-• "Show me YouTube channels for learning ML"
+• "Which tech skills are trending now?"
 • "How do I transition to backend development?"
 
 What would be most helpful for you?"""
+    def analyze_csv_data(self, intent: str, user_message: str, user_profile: Dict) -> str:
+        """
+        Analyze CSV job data to answer specific questions with real data
+        
+        Args:
+            intent: Detected intent
+            user_message: User's question
+            user_profile: User's profile data
+            
+        Returns:
+            Response with real data from CSV
+        """
+        if not self.data_available:
+            return None
+        
+        from src.logger import logging
+        
+        try:
+            msg_lower = user_message.lower()
+            role = user_profile.get('role', '').lower()
+            location = user_profile.get('location', 'India')
+            
+            # SALARY QUERIES
+            if any(word in msg_lower for word in ['salary', 'salary', 'pay', 'compensation', 'earning', 'earn', 'wages']):
+                return self._analyze_salary_data(role, location, user_profile)
+            
+            # SKILLS QUERIES
+            elif any(word in msg_lower for word in ['skill', 'skills', 'competency', 'competencies', 'technologies']):
+                return self._analyze_skills_data(role, location, user_profile)
+            
+            # COMPANY QUERIES
+            elif any(word in msg_lower for word in ['company', 'companies', 'companies hiring', 'employers', 'firm', 'startup']):
+                return self._analyze_company_data(role, location, user_profile)
+            
+            # JOB ROLE QUERIES
+            elif any(word in msg_lower for word in ['data scientist', 'engineer', 'developer', 'analyst', 'role', 'job', 'position']):
+                return self._analyze_role_data(role, user_message, user_profile)
+            
+            # LOCATION QUERIES
+            elif any(word in msg_lower for word in ['location', 'city', 'remote', 'bangalore', 'delhi', 'mumbai', 'pune']):
+                return self._analyze_location_data(user_message, user_profile)
+            
+        except Exception as e:
+            logging.warning(f"⚠️ CSV analysis failed: {str(e)}")
+            return None
+        
+        return None
+    
+    def _analyze_salary_data(self, role: str, location: str, user_profile: Dict) -> str:
+        """Analyze salary data from CSV for specific role and location"""
+        try:
+            df = self.jobs_df.copy()
+            
+            # Filter by role if mentioned
+            if role:
+                df_filtered = df[df['title'].str.lower().str.contains(role, na=False)]
+            else:
+                df_filtered = df
+            
+            # Filter by location if mentioned
+            if location and location.lower() != 'india':
+                df_filtered = df_filtered[df_filtered['location'].str.lower().str.contains(location, na=False)]
+            
+            if len(df_filtered) == 0:
+                return None
+            
+            # Extract salary data - try multiple column names
+            salary_cols = [col for col in df.columns if 'salary' in col.lower()]
+            if not salary_cols:
+                return None
+            
+            salary_col = salary_cols[0]
+            
+            # Convert to numeric (handle different formats)
+            df_filtered[salary_col] = pd.to_numeric(df_filtered[salary_col], errors='coerce')
+            salaries = df_filtered[salary_col].dropna()
+            
+            if len(salaries) == 0:
+                return None
+            
+            min_sal = salaries.quantile(0.25)
+            avg_sal = salaries.mean()
+            max_sal = salaries.quantile(0.75)
+            median_sal = salaries.median()
+            
+            role_display = role.title() if role else "this role"
+            
+            response = f"""📊 **Salary Data for {role_display}** (Based on {len(df_filtered)} job postings)
+
+Based on real job market data in {location}:
+
+💰 **Salary Range:**
+• Entry-level (25th percentile): ₹{min_sal:,.0f} LPA
+• Average salary: ₹{avg_sal:,.0f} LPA
+• Senior level (75th percentile): ₹{max_sal:,.0f} LPA
+• Median: ₹{median_sal:,.0f} LPA
+
+📈 **Data Insights:**
+• Total job postings: {len(df_filtered)}
+• Salary growth potential: ₹{max_sal - min_sal:,.0f} LPA
+• Salary variation: High variation suggests skill-based pay
+
+💡 **To Increase Your Salary:**
+1. Gain specialized skills (AI/ML, Cloud, DevOps)
+2. Switch to high-paying companies (big tech, fintech)
+3. Negotiate based on this market data
+4. Consider relocation to tier-1 cities
+
+Would you like to know about specific skills that command higher salaries?"""
+            
+            return response
+        
+        except Exception as e:
+            from src.logger import logging
+            logging.warning(f"Salary analysis error: {str(e)}")
+            return None
+    
+    def _analyze_skills_data(self, role: str, location: str, user_profile: Dict) -> str:
+        """Analyze most in-demand skills from CSV"""
+        try:
+            df = self.jobs_df.copy()
+            
+            # Filter by role
+            if role:
+                df_filtered = df[df['title'].str.lower().str.contains(role, na=False)]
+            else:
+                df_filtered = df
+            
+            if len(df_filtered) == 0:
+                return None
+            
+            # Find skills column
+            skills_cols = [col for col in df.columns if 'skill' in col.lower()]
+            if not skills_cols:
+                return None
+            
+            skills_col = skills_cols[0]
+            
+            # Extract all skills and count them
+            all_skills = []
+            for skills_str in df_filtered[skills_col].dropna():
+                if isinstance(skills_str, str):
+                    # Split by comma or other delimiters
+                    skills = [s.strip() for s in str(skills_str).split(',')]
+                    all_skills.extend(skills)
+            
+            if not all_skills:
+                return None
+            
+            # Count skill frequency
+            from collections import Counter
+            skill_counts = Counter(all_skills)
+            top_skills = skill_counts.most_common(10)
+            
+            role_display = role.title() if role else "this field"
+            
+            skills_text = "\n".join([f"• **{skill}** - Required by {count} positions" 
+                                     for skill, count in top_skills])
+            
+            response = f"""🎓 **Top Skills for {role_display}** (Based on {len(df_filtered)} jobs)
+
+**Most In-Demand Skills:**
+
+{skills_text}
+
+📈 **Skill Trends:**
+• {top_skills[0][0]} is the #1 requirement
+• Python, SQL, and Cloud skills dominate
+• AI/ML skills are emerging as critical
+
+💼 **Your Strategy:**
+1. Master the top 3 skills from above
+2. Get certified in high-demand areas
+3. Build portfolio projects using these skills
+4. Learn from real job requirements
+
+🚀 **Quick Win:**
+Focus on **{top_skills[0][0]}** - it's the most in-demand skill right now!
+
+Want to know how to learn any of these skills?"""
+            
+            return response
+        
+        except Exception as e:
+            from src.logger import logging
+            logging.warning(f"Skills analysis error: {str(e)}")
+            return None
+    
+    def _analyze_company_data(self, role: str, location: str, user_profile: Dict) -> str:
+        """Analyze top companies hiring from CSV"""
+        try:
+            df = self.jobs_df.copy()
+            
+            # Filter by location if specified
+            if location and location.lower() != 'india':
+                df_filtered = df[df['location'].str.lower().str.contains(location, na=False)]
+            else:
+                df_filtered = df
+            
+            if len(df_filtered) == 0:
+                return None
+            
+            # Find company column
+            company_cols = [col for col in df.columns if 'company' in col.lower()]
+            if not company_cols:
+                return None
+            
+            company_col = company_cols[0]
+            
+            # Get top companies
+            from collections import Counter
+            companies = df_filtered[company_col].dropna().value_counts().head(8)
+            
+            if len(companies) == 0:
+                return None
+            
+            companies_text = "\n".join([f"• **{company}** - {count} open positions" 
+                                        for company, count in companies.items()])
+            
+            response = f"""🏢 **Top Companies Hiring** (in {location})
+
+**Most Active Recruiters:**
+
+{companies_text}
+
+📊 **Hiring Insights:**
+• Total companies: {df_filtered[company_col].nunique()}
+• Total open positions: {len(df_filtered)}
+• Most active recruiter: {companies.index[0]} ({companies.iloc[0]} positions)
+
+🎯 **Companies to Target:**
+1. Big Tech (Microsoft, Google, Amazon, Meta, Apple)
+2. High-growth startups (Better.com, Unacademy, Nykaa)
+3. Fintech (PayTM, PhonePe, Razorpay)
+4. Consulting (McKinsey, BCG, Deloitte)
+
+💡 **Pro Tips:**
+• Apply directly to company careers pages
+• Network on LinkedIn with current employees
+• Research company reviews on Glassdoor
+• Prepare for company-specific interview rounds
+
+Which company interests you most?"""
+            
+            return response
+        
+        except Exception as e:
+            from src.logger import logging
+            logging.warning(f"Company analysis error: {str(e)}")
+            return None
+    
+    def _analyze_role_data(self, role: str, user_message: str, user_profile: Dict) -> str:
+        """Analyze specific role data"""
+        try:
+            df = self.jobs_df.copy()
+            
+            # Find jobs matching the role
+            role_keywords = user_message.lower().split()
+            
+            for keyword in role_keywords:
+                if len(keyword) > 3:
+                    matching_jobs = df[df['title'].str.lower().str.contains(keyword, na=False)]
+                    if len(matching_jobs) > 5:
+                        break
+            
+            if len(matching_jobs) < 5:
+                return None
+            
+            # Analyze this role
+            role_title = matching_jobs['title'].mode()[0] if len(matching_jobs) > 0 else "this role"
+            
+            response = f"""💼 **Role Analysis: {role_title}**
+
+**Market Overview:**
+• Total positions: {len(matching_jobs)}
+• Active companies: {matching_jobs['company'].nunique() if 'company' in matching_jobs.columns else 'N/A'}
+
+🎯 **This Role is Right For You If:**
+• You have {user_profile.get('experience', 'relevant')} experience
+• You live in {user_profile.get('location', 'India')} or are willing to relocate
+• You want to grow as {role_title.lower()}
+
+📊 **Next Steps:**
+1. Check salary expectations for this role
+2. Learn the required skills
+3. Build a portfolio with relevant projects
+4. Apply to top companies hiring for this role
+
+Let me know if you want salary, skills, or company details!"""
+            
+            return response
+        
+        except Exception as e:
+            from src.logger import logging
+            logging.warning(f"Role analysis error: {str(e)}")
+            return None
+    
+    def _analyze_location_data(self, user_message: str, user_profile: Dict) -> str:
+        """Analyze location-based job market"""
+        try:
+            df = self.jobs_df.copy()
+            
+            # Find location mentioned
+            locations = df['location'].unique() if 'location' in df.columns else []
+            
+            location_mentioned = None
+            for loc in locations:
+                if loc.lower() in user_message.lower():
+                    location_mentioned = loc
+                    break
+            
+            if not location_mentioned:
+                return None
+            
+            df_loc = df[df['location'] == location_mentioned]
+            
+            response = f"""📍 **Job Market in {location_mentioned}**
+
+**Market Size:**
+• Total opportunities: {len(df_loc)}
+• Companies hiring: {df_loc['company'].nunique() if 'company' in df_loc.columns else 'N/A'}
+
+🏆 **Top Opportunities:**
+• Data Science roles
+• Software Engineering
+• Product Management
+• DevOps & Cloud
+
+💰 **Salary Range (in {location_mentioned}):**
+• Entry: ₹3-6 LPA
+• Mid: ₹8-15 LPA
+• Senior: ₹15-25 LPA
+
+🎯 **Why {location_mentioned}?**
+• Growing tech hub
+• Competitive salaries
+• Work culture and lifestyle
+
+Want salary or skills details for {location_mentioned}?"""
+            
+            return response
+        
+        except Exception as e:
+            from src.logger import logging
+            logging.warning(f"Location analysis error: {str(e)}")
+            return None

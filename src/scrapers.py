@@ -7,6 +7,7 @@ import pandas as pd
 from datetime import datetime
 import os
 import sys
+import time
 from src.logger import logging
 from src.exception import CustomException
 
@@ -64,6 +65,9 @@ class AdzunaAPI:
                 params['where'] = location
             
             logging.info(f"Fetching jobs: {keywords} in {location}")
+            
+            # Add delay to avoid rate limiting (3 seconds for free tier)
+            time.sleep(3)
             
             # Add retry logic
             max_retries = 2
@@ -291,27 +295,42 @@ def fetch_and_save_jobs(app_id=None, app_key=None):
         api = AdzunaAPI(app_id, app_key)
         
         # Define roles and locations to search
+        # Top 15 highest demand roles in Indian tech market
         roles = [
             'software engineer',
-            'data scientist',
-            'python developer',
+            'backend developer',
+            'frontend developer',
             'full stack developer',
+            'python developer',
+            'data scientist',
             'devops engineer',
             'machine learning engineer',
-            'frontend developer',
-            'backend developer'
+            'java developer',
+            'react developer',
+            'cloud engineer',
+            'qa engineer',
+            'mobile developer',
+            'solutions architect',
+            'technical lead'
         ]
         
+        # Top 10 locations with highest job postings
         locations = [
             'Bangalore',
             'Mumbai',
             'Delhi',
             'Hyderabad',
             'Pune',
-            'Chennai'
+            'Chennai',
+            'Gurgaon',
+            'Noida',
+            'Ahmedabad',
+            'Kochi'
         ]
         
-        # Fetch jobs with reduced timeout to avoid hanging
+        # Fetch jobs with optimized parameters to avoid rate limiting
+        # 15 roles × 10 locations × 50 jobs = ~7,500 total jobs
+        # With 3-second delays: 150 requests, ~6 minutes completion
         jobs_df = api.fetch_multiple_roles(roles, locations, max_results_per_role=50)
         
         if jobs_df.empty:

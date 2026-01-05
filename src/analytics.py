@@ -284,33 +284,112 @@ def get_role_distribution(jobs_df, top_n=10):
         if jobs_df.empty or 'title' not in jobs_df.columns:
             return pd.DataFrame()
         
-        # Simplify job titles by extracting key roles
-        def extract_role(title):
-            title_lower = str(title).lower()
-            if 'data scientist' in title_lower:
-                return 'Data Scientist'
-            elif 'data engineer' in title_lower:
-                return 'Data Engineer'
-            elif 'data analyst' in title_lower:
-                return 'Data Analyst'
-            elif 'full stack' in title_lower:
-                return 'Full Stack Developer'
-            elif 'frontend' in title_lower or 'front end' in title_lower:
-                return 'Frontend Developer'
-            elif 'backend' in title_lower or 'back end' in title_lower:
-                return 'Backend Developer'
-            elif 'devops' in title_lower:
-                return 'DevOps Engineer'
-            elif 'machine learning' in title_lower or 'ml engineer' in title_lower:
-                return 'ML Engineer'
-            elif 'software engineer' in title_lower or 'software developer' in title_lower:
-                return 'Software Engineer'
-            elif 'qa' in title_lower or 'test' in title_lower:
-                return 'QA Engineer'
-            else:
-                return 'Other'
+        # Simplify job titles by extracting key roles from both title and skills
+        import re
         
-        jobs_df['role'] = jobs_df['title'].apply(extract_role)
+        def extract_role(row):
+            title_lower = str(row.get('title', '')).lower()
+            skills_lower = str(row.get('skills', '')).lower()
+            combined = title_lower + ' ' + skills_lower
+            
+            # Remove seniority prefixes for cleaner categorization
+            title_clean = re.sub(r'^(senior|lead|staff|principal|sr\.|junior|associate|entry level|mid level)\s+', '', title_lower)
+            title_clean = re.sub(r'\s+(i{1,3}|iv|[1-4]|a|b)$', '', title_clean)
+            
+            # Specific role checks (order matters - most specific first)
+            if 'data scientist' in combined:
+                return 'Data Scientist'
+            elif 'data engineer' in combined:
+                return 'Data Engineer'
+            elif 'data analyst' in combined:
+                return 'Data Analyst'
+            elif 'machine learning' in combined or 'ml engineer' in combined:
+                return 'ML Engineer'
+            elif 'full stack' in combined or 'fullstack' in combined:
+                return 'Full Stack Developer'
+            elif 'backend' in combined or 'back-end' in combined or 'back end' in combined:
+                return 'Backend Developer'
+            elif 'frontend' in combined or 'front-end' in combined or 'front end' in combined:
+                return 'Frontend Developer'
+            elif 'devops' in combined:
+                return 'DevOps Engineer'
+            elif 'site reliability' in combined or 'sre' in combined:
+                return 'Site Reliability Engineer'
+            elif 'qa' in combined or 'test' in combined or 'quality assurance' in combined:
+                return 'QA Engineer'
+            
+            # Technology-specific developers
+            elif ('java' in combined and 'javascript' not in combined) or 'javaee' in combined or 'j2ee' in combined:
+                return 'Java Developer'
+            elif 'python' in combined or 'django' in combined or 'flask' in combined:
+                return 'Python Developer'
+            elif 'react native' in combined:
+                return 'React Native Developer'
+            elif 'react' in combined or 'reactjs' in combined or 'react.js' in combined:
+                return 'React Developer'
+            elif 'angular' in combined or 'angularjs' in combined:
+                return 'Angular Developer'
+            elif 'vue' in combined or 'vuejs' in combined:
+                return 'Vue Developer'
+            elif 'node' in combined or 'nodejs' in combined or 'node.js' in combined:
+                return 'Node.js Developer'
+            elif '.net' in combined or 'dotnet' in combined or 'c#' in combined:
+                return '.NET Developer'
+            elif 'php' in combined or 'laravel' in combined:
+                return 'PHP Developer'
+            elif 'ruby' in combined or 'rails' in combined:
+                return 'Ruby Developer'
+            elif 'golang' in combined or 'go developer' in combined:
+                return 'Go Developer'
+            elif 'rust' in combined:
+                return 'Rust Developer'
+            elif 'flutter' in combined or 'dart' in combined:
+                return 'Flutter Developer'
+            elif 'android' in combined or 'kotlin' in combined:
+                return 'Android Developer'
+            elif 'ios' in combined or 'swift' in combined or 'objective-c' in combined:
+                return 'iOS Developer'
+            elif 'mobile' in combined:
+                return 'Mobile Developer'
+            elif 'mern' in combined:
+                return 'MERN Stack Developer'
+            elif 'mean' in combined:
+                return 'MEAN Stack Developer'
+            
+            # Infrastructure & Cloud
+            elif 'cloud' in combined or 'aws' in combined or 'azure' in combined or 'gcp' in combined:
+                return 'Cloud Engineer'
+            elif 'embedded' in combined or 'firmware' in combined:
+                return 'Embedded Engineer'
+            elif 'security' in combined or 'cybersecurity' in combined:
+                return 'Security Engineer'
+            
+            # Leadership & Architecture
+            elif 'architect' in combined:
+                return 'Solutions Architect'
+            elif 'engineering manager' in combined or 'development manager' in combined:
+                return 'Engineering Manager'
+            elif 'tech lead' in combined or 'technical lead' in combined or 'team lead' in combined:
+                return 'Technical Lead'
+            
+            # Design
+            elif 'ui' in combined or 'ux' in combined or 'designer' in combined:
+                return 'UI/UX Developer'
+            elif 'web' in combined:
+                return 'Web Developer'
+            
+            # Generic software engineer (after checking all specifics)
+            elif 'software engineer' in title_clean or 'software developer' in title_clean:
+                return 'Software Engineer'
+            elif 'programmer' in combined:
+                return 'Software Engineer'
+            
+            # If nothing matches, return simplified title
+            else:
+                # Capitalize first letter of each word
+                return ' '.join(word.capitalize() for word in title_clean.split()[:4])
+        
+        jobs_df['role'] = jobs_df.apply(extract_role, axis=1)
         
         role_counts = jobs_df['role'].value_counts().head(top_n)
         

@@ -149,6 +149,10 @@ async function loadDashboardData() {
 // Filter and Render
 async function filterAndRender() {
     try {
+        // Show loading spinner
+        const spinner = DOM.byId('locationLoadingSpinner');
+        if (spinner) spinner.style.display = 'block';
+        
         const days = DOM.byId('daysFilter').value;
         const location = DOM.byId('locationFilter').value;
         
@@ -228,6 +232,10 @@ async function filterAndRender() {
     } catch (error) {
         console.error('Error filtering dashboard:', error);
         Alert.error('Failed to filter dashboard: ' + error.message);
+    } finally {
+        // Hide loading spinner
+        const spinner = DOM.byId('locationLoadingSpinner');
+        if (spinner) spinner.style.display = 'none';
     }
 }
 

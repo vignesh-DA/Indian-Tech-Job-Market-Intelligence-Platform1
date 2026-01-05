@@ -237,6 +237,16 @@ def saved_jobs_page():
         logging.error(f"Error loading saved-jobs.html: {str(e)}")
         return jsonify({'error': 'Failed to load saved jobs page'}), 500
 
+@app.route('/profile_pics/<filename>')
+def serve_profile_pic(filename):
+    """Serve profile pictures from local storage"""
+    try:
+        return send_from_directory('data/profile_pics', filename)
+    except Exception as e:
+        logging.error(f"Error serving profile picture: {str(e)}")
+        # Return placeholder image
+        return '', 404
+
 # API: Get dashboard statistics
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
@@ -427,6 +437,34 @@ def get_job_recommendations():
                 'message': 'No job data available',
                 'data': []
             })
+        
+        # Filter by location if specified
+        user_location = user_profile.get('location', '')
+        if user_location and user_location.lower() not in ['', 'any', 'all locations']:
+            from src.data_loader import normalize_location
+            
+            # Normalize user's selected location
+            normalized_user_loc = normalize_location(user_location).lower()
+            
+            # Filter jobs to only include matching locations (exact match)
+            jobs_df['normalized_location'] = jobs_df['location'].apply(lambda x: normalize_location(x).lower())
+            jobs_df_filtered = jobs_df[
+                (jobs_df['normalized_location'] == normalized_user_loc) | 
+                (jobs_df['normalized_location'].str.contains('remote', na=False))
+            ].copy()
+            
+            # Drop the helper column
+            jobs_df_filtered = jobs_df_filtered.drop('normalized_location', axis=1)
+            
+            if jobs_df_filtered.empty:
+                return jsonify({
+                    'success': True,
+                    'message': f'No jobs found in {user_location}. Try a different location.',
+                    'data': []
+                })
+            
+            logging.info(f"Filtered to {len(jobs_df_filtered)} jobs in {user_location} (from {len(jobs_df)} total)")
+            jobs_df = jobs_df_filtered
         
         # Initialize and train recommendation engine
         recommendation_engine = JobRecommendationEngine()
@@ -810,7 +848,7 @@ def fetch_jobs_api():
                 
                 return jsonify({
                     'success': True,
-                    'message': f'Successfully fetched {len(result)} jobs and trained new model',
+                    'message': f'✅ Thank you for waiting! Successfully fetched {len(result):,} jobs and Explore the latest trends in the tech market',
                     'count': len(result),
                     'model_trained': True,
                     'timestamp': datetime.now().isoformat()
@@ -995,5 +1033,7 @@ if __name__ == '__main__':
     app.run(
         host='0.0.0.0',
         port=5000,
-        debug=debug
+        debug=debug,
+        threaded=False,  # Disable threading to avoid Fortran errors with sklearn
+        use_reloader=False
     )
