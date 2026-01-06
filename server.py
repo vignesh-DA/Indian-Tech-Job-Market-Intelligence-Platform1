@@ -49,11 +49,8 @@ app = Flask(__name__,
 # Configure Flask session for authentication
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['SESSION_TYPE'] = 'filesystem'
-app.config['PERMANENT_SESSION_LIFETIME'] = 172800  # 2 days session timeout (48 hours)
+app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour session timeout
 app.config['SESSION_REFRESH_EACH_REQUEST'] = True  # Refresh session on each request
-app.config['SESSION_COOKIE_SECURE'] = False  # Set to True in production with HTTPS
-app.config['SESSION_COOKIE_HTTPONLY'] = True  # Prevent JavaScript access to session cookie
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'  # CSRF protection
 Session(app)
 
 # Enable CORS
@@ -239,6 +236,16 @@ def saved_jobs_page():
     except Exception as e:
         logging.error(f"Error loading saved-jobs.html: {str(e)}")
         return jsonify({'error': 'Failed to load saved jobs page'}), 500
+
+@app.route('/profile_pics/<filename>')
+def serve_profile_pic(filename):
+    """Serve profile pictures from local storage"""
+    try:
+        return send_from_directory('data/profile_pics', filename)
+    except Exception as e:
+        logging.error(f"Error serving profile picture: {str(e)}")
+        # Return placeholder image
+        return '', 404
 
 # API: Get dashboard statistics
 @app.route('/api/stats', methods=['GET'])
@@ -841,7 +848,7 @@ def fetch_jobs_api():
                 
                 return jsonify({
                     'success': True,
-                    'message': f'Thank you for waiting! Successfully fetched {len(result):,} jobs and Explore the latest trends in the tech market',
+                    'message': f'✅ Thank you for waiting! Successfully fetched {len(result):,} jobs and Explore the latest trends in the tech market',
                     'count': len(result),
                     'model_trained': True,
                     'timestamp': datetime.now().isoformat()

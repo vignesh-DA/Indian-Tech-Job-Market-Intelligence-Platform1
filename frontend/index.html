@@ -30,13 +30,13 @@
                 <!-- Profile Icon -->
                 <div class="nav-profile-item">
                     <div class="profile-wrapper" id="profileBtn" title="Profile">
-                        <i id="profileImg" class="fas fa-user-circle" style="font-size: 32px; color: #3b82f6; cursor: pointer;"></i>
+                        <img id="profileImg" src="https://via.placeholder.com/32" alt="Profile" style="width: 32px; height: 32px; border-radius: 50%; object-fit: cover;">
                     </div>
                     
                     <!-- Dropdown Menu -->
                     <div class="profile-dropdown" id="profileDropdown">
                         <div class="dropdown-header">
-                            <i id="dropdownProfilePic" class="fas fa-user-circle" style="font-size: 40px; color: #3b82f6;"></i>
+                            <img id="dropdownProfilePic" src="https://via.placeholder.com/40" alt="Profile" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover;">
                             <div class="dropdown-user-info">
                                 <div id="dropdownUserName" class="dropdown-name">User</div>
                                 <div id="dropdownUserEmail" class="dropdown-email">email@example.com</div>
@@ -75,7 +75,7 @@
         <!-- Hero Section -->
         <section class="hero">
             <div class="hero-content">
-                <h1 class="hero-title">Indian Tech Job Market Intelligence</h1>
+                <h1 class="hero-title">🇮🇳 Indian Tech Job Market Intelligence</h1>
                 <p class="hero-subtitle">Discover smarter job matches and career insights tailored just for you</p>
                 <div class="hero-cta">
                     <button class="btn btn-primary" onclick="window.location.href='/recommendations'">
@@ -306,6 +306,18 @@
                     // User is logged in - show profile button in navbar
                     const user = data.user;
                     sessionStartTime = Date.now();
+                    
+                    // Update navbar profile picture
+                    const profileImg = document.getElementById('profileImg');
+                    if (profileImg) {
+                        profileImg.src = user.picture || 'https://via.placeholder.com/32';
+                    }
+                    
+                    // Update dropdown profile picture
+                    const dropdownProfilePic = document.getElementById('dropdownProfilePic');
+                    if (dropdownProfilePic) {
+                        dropdownProfilePic.src = user.picture || 'https://via.placeholder.com/40';
+                    }
                     
                     document.getElementById('dropdownUserName').textContent = user.name || 'User';
                     document.getElementById('dropdownUserEmail').textContent = user.email;

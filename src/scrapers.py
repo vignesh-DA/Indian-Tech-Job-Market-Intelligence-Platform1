@@ -8,7 +8,6 @@ from datetime import datetime
 import os
 import sys
 import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.logger import logging
 from src.exception import CustomException
 
@@ -37,15 +36,15 @@ class AdzunaAPI:
         
         logging.info("Initialized Adzuna API client")
     
-    def search_jobs(self, keywords="software engineer", location="", page=1, results_per_page=50, timeout=10):
+    def search_jobs(self, keywords="software engineer", location="", results_per_page=50, page=1, timeout=10):
         """
         Search for jobs using Adzuna API with retry logic
         
         Args:
             keywords: Job search keywords
             location: Location filter
-            page: Page number
             results_per_page: Number of results per page (max 50)
+            page: Page number
             timeout: Request timeout in seconds
             
         Returns:
@@ -65,7 +64,10 @@ class AdzunaAPI:
             if location:
                 params['where'] = location
             
-            logging.info(f"Fetching jobs: {keywords} in {location} (page {page})")
+            logging.info(f"Fetching jobs: {keywords} in {location}")
+            
+            # Add delay to avoid rate limiting (3 seconds for free tier)
+            time.sleep(3)
             
             # Add retry logic
             max_retries = 2
@@ -77,13 +79,12 @@ class AdzunaAPI:
                     data = response.json()
                     jobs = data.get('results', [])
                     
-                    logging.info(f"✓ Fetched {len(jobs)} jobs for {keywords} in {location}")
+                    logging.info(f"Fetched {len(jobs)} jobs from Adzuna")
                     return jobs
                     
                 except requests.exceptions.Timeout:
                     if attempt < max_retries:
                         logging.warning(f"Timeout attempt {attempt + 1}/{max_retries + 1}, retrying...")
-                        time.sleep(1)
                         continue
                     else:
                         logging.error("API timeout - max retries exceeded")
@@ -91,7 +92,6 @@ class AdzunaAPI:
                 except requests.exceptions.ConnectionError:
                     if attempt < max_retries:
                         logging.warning(f"Connection error attempt {attempt + 1}/{max_retries + 1}, retrying...")
-                        time.sleep(1)
                         continue
                     else:
                         logging.error("API connection error - max retries exceeded")
@@ -105,17 +105,10 @@ class AdzunaAPI:
         except Exception as e:
             logging.error(f"Error in search_jobs: {str(e)}")
             return []
-            
-        except requests.exceptions.RequestException as e:
-            logging.error(f"API request error: {str(e)}")
-            return []
-        except Exception as e:
-            logging.error(f"Error in search_jobs: {str(e)}")
-            return []
     
     def fetch_multiple_roles(self, roles, locations, max_results_per_role=100):
         """
-        Fetch jobs for multiple roles and locations using parallel execution
+        Fetch jobs for multiple roles and locations
         
         Args:
             roles: List of job roles to search
@@ -129,41 +122,30 @@ class AdzunaAPI:
             all_jobs = []
             results_per_page = 50
             
-            # Create list of tasks (role, location) combinations
-            tasks = []
             for role in roles:
                 for location in locations:
                     pages_needed = (max_results_per_role // results_per_page) + 1
+                    
                     for page in range(1, pages_needed + 1):
-                        tasks.append((role, location, page, results_per_page))
-            
-            logging.info(f"⚡ Starting parallel scraping with {len(tasks)} tasks")
-            
-            # Use ThreadPoolExecutor for parallel requests (3 workers for safe rate limiting)
-            with ThreadPoolExecutor(max_workers=3) as executor:
-                # Submit all tasks
-                futures = {
-                    executor.submit(self.search_jobs, task[0], task[1], task[2], task[3]): task 
-                    for task in tasks
-                }
-                
-                # Collect results as they complete
-                completed = 0
-                for future in as_completed(futures):
-                    task = futures[future]
-                    try:
-                        jobs = future.result()
-                        if jobs:
-                            all_jobs.extend(jobs)
-                        completed += 1
-                        if completed % 10 == 0:
-                            logging.info(f"⏳ Progress: {completed}/{len(tasks)} requests completed ({len(all_jobs)} jobs so far)")
-                    except Exception as e:
-                        logging.error(f"Task failed for {task[0]} in {task[1]}: {str(e)}")
+                        jobs = self.search_jobs(
+                            keywords=role,
+                            location=location,
+                            results_per_page=results_per_page,
+                            page=page
+                        )
+                        
+                        if not jobs:
+                            break
+                        
+                        all_jobs.extend(jobs)
+                        
+                        # Stop if we have enough results
+                        if len(all_jobs) >= max_results_per_role * len(roles) * len(locations):
+                            break
             
             # Convert to DataFrame
             jobs_df = self._parse_jobs_to_dataframe(all_jobs)
-            logging.info(f"✅ Total jobs fetched: {len(jobs_df)}")
+            logging.info(f"Total jobs fetched: {len(jobs_df)}")
             
             return jobs_df
             
@@ -297,7 +279,7 @@ class AdzunaAPI:
 
 def fetch_and_save_jobs(app_id=None, app_key=None):
     """
-    Main function to fetch jobs and save to CSV with parallel execution
+    Main function to fetch jobs and save to CSV with fallback to existing data
     
     Args:
         app_id: Adzuna app ID
@@ -307,15 +289,13 @@ def fetch_and_save_jobs(app_id=None, app_key=None):
         DataFrame with fetched jobs, or None if fetch fails
     """
     try:
-        start_time = time.time()
-        logging.info("=" * 60)
-        logging.info("🚀 Starting parallel job fetch process")
-        logging.info("=" * 60)
+        logging.info("Starting job fetch process")
         
         # Initialize API
         api = AdzunaAPI(app_id, app_key)
         
         # Define roles and locations to search
+        # Top 15 highest demand roles in Indian tech market
         roles = [
             'software engineer',
             'backend developer',
@@ -334,6 +314,7 @@ def fetch_and_save_jobs(app_id=None, app_key=None):
             'technical lead'
         ]
         
+        # Top 10 locations with highest job postings
         locations = [
             'Bangalore',
             'Mumbai',
@@ -347,37 +328,27 @@ def fetch_and_save_jobs(app_id=None, app_key=None):
             'Kochi'
         ]
         
-        logging.info(f"📊 Configuration:")
-        logging.info(f"   - Roles: {len(roles)}")
-        logging.info(f"   - Locations: {len(locations)}")
-        logging.info(f"   - Total combinations: {len(roles) * len(locations)}")
-        logging.info(f"   - Parallel workers: 3 (ThreadPoolExecutor)")
-        logging.info(f"   - Expected duration: ~2-3 minutes")
-        logging.info("=" * 60)
-        
-        # Fetch jobs with parallel execution
+        # Fetch jobs with optimized parameters to avoid rate limiting
+        # 15 roles × 10 locations × 50 jobs = ~7,500 total jobs
+        # With 3-second delays: 150 requests, ~6 minutes completion
         jobs_df = api.fetch_multiple_roles(roles, locations, max_results_per_role=50)
         
         if jobs_df.empty:
-            logging.warning("⚠️ No jobs fetched from API")
+            logging.warning("No jobs fetched from API")
             return None
         
-        # Calculate elapsed time
-        elapsed_time = time.time() - start_time
-        minutes = int(elapsed_time // 60)
-        seconds = int(elapsed_time % 60)
-        
-        # Delete old model file
+        # Delete old model file to force retraining on new data
         model_file = 'models/recommendation_model.pkl'
         if os.path.exists(model_file):
             try:
                 file_size = os.path.getsize(model_file) / (1024*1024)
                 os.remove(model_file)
                 logging.info("=" * 60)
-                logging.info("🗑️  DELETING OLD PICKLE MODEL FILE")
+                logging.info("DELETING OLD PICKLE MODEL FILE")
                 logging.info("=" * 60)
                 logging.info(f"❌ PICKLE DELETED: {model_file}")
                 logging.info(f"   - Size: {file_size:.2f} MB")
+                logging.info(f"   - Path: {os.path.abspath(model_file)}")
                 logging.info(f"   - Reason: New data fetched, model will retrain")
                 logging.info("=" * 60)
             except Exception as e:
@@ -387,16 +358,11 @@ def fetch_and_save_jobs(app_id=None, app_key=None):
         from src.data_loader import save_jobs_to_csv
         save_jobs_to_csv(jobs_df)
         
-        logging.info("=" * 60)
-        logging.info(f"✅ SUCCESS: Fetched and saved {len(jobs_df)} jobs")
-        logging.info(f"⏱️  Total time: {minutes}m {seconds}s")
-        logging.info(f"📈 Average: {len(jobs_df) / elapsed_time:.1f} jobs/sec")
-        logging.info("=" * 60)
-        
+        logging.info(f"Successfully fetched and saved {len(jobs_df)} jobs")
         return jobs_df
         
     except Exception as e:
-        logging.error(f"❌ Error in fetch_and_save_jobs: {str(e)}")
+        logging.error(f"Error in fetch_and_save_jobs: {str(e)}")
         return None
 
 

@@ -6,6 +6,7 @@ Handles login flow and session management
 import os
 import json
 import requests
+import hashlib
 from typing import Dict, Optional, Tuple
 from dotenv import load_dotenv
 from src.user_db import user_db
@@ -26,6 +27,10 @@ class GoogleOAuth:
         self.auth_uri = 'https://accounts.google.com/o/oauth2/v2/auth'
         self.token_uri = 'https://www.googleapis.com/oauth2/v4/token'
         self.userinfo_uri = 'https://www.googleapis.com/oauth2/v1/userinfo'
+        
+        # Profile pictures directory
+        self.profile_pics_dir = 'data/profile_pics'
+        os.makedirs(self.profile_pics_dir, exist_ok=True)
         
         if not self.client_id or not self.client_secret:
             logging.warning("⚠️ Google OAuth credentials not configured in .env")
@@ -89,6 +94,37 @@ class GoogleOAuth:
             logging.error(f"❌ Failed to get user info: {str(e)}")
             return None
     
+    def download_profile_picture(self, picture_url: str, user_email: str) -> Optional[str]:
+        """
+        Download profile picture from Google and save locally
+        Returns: Local file path or None
+        """
+        try:
+            if not picture_url:
+                return None
+            
+            # Generate unique filename based on email
+            email_hash = hashlib.md5(user_email.encode()).hexdigest()
+            filename = f"{email_hash}.jpg"
+            filepath = os.path.join(self.profile_pics_dir, filename)
+            
+            # Download image from Google
+            response = requests.get(picture_url, timeout=10)
+            response.raise_for_status()
+            
+            # Save to local file
+            with open(filepath, 'wb') as f:
+                f.write(response.content)
+            
+            # Return relative path for database
+            local_path = f"/profile_pics/{filename}"
+            logging.info(f"✅ Downloaded profile picture: {local_path}")
+            return local_path
+            
+        except Exception as e:
+            logging.error(f"❌ Failed to download profile picture: {str(e)}")
+            return None
+    
     def handle_oauth_callback(self, code: str) -> Tuple[bool, Optional[Dict], str]:
         """
         Handle OAuth callback from Google
@@ -108,11 +144,18 @@ class GoogleOAuth:
         if not user_info:
             return False, None, "Failed to retrieve user information"
         
+        # Download and save profile picture locally
+        google_picture_url = user_info['picture']
+        local_picture_path = self.download_profile_picture(google_picture_url, user_info['email'])
+        
+        # Use local path if download succeeded, otherwise fallback to Google URL
+        picture_path = local_picture_path if local_picture_path else google_picture_url
+        
         # Create or get user in database
         user = user_db.get_or_create_user(
             email=user_info['email'],
             name=user_info['name'],
-            picture=user_info['picture'],
+            picture=picture_path,
             google_id=user_info['google_id']
         )
         
