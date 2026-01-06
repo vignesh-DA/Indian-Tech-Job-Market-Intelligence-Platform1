@@ -50,13 +50,13 @@ gunicorn --workers 2 --threads 2 --worker-class gthread --bind 0.0.0.0:$PORT ser
 In Render Dashboard → Settings → Environment:
 
 ```
-ADZUNA_APP_ID=33fad7de
-ADZUNA_APP_KEY=41d209544b67e53843787af0cef251a6
-GEMINI_API_KEY=AIzaSyBzi34TOIeWT71G56Q6VGEKfc8LwsC_zVE
-GOOGLE_OAUTH_CLIENT_ID=366517420386-vjnqqrv28gvij7p4mcr5quk3hi1qgbr3.apps.googleusercontent.com
-GOOGLE_OAUTH_CLIENT_SECRET=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
+ADZUNA_APP_ID=your_adzuna_app_id
+ADZUNA_APP_KEY=your_adzuna_app_key
+GEMINI_API_KEY=your_gemini_api_key
+GOOGLE_OAUTH_CLIENT_ID=your_google_oauth_client_id
+GOOGLE_OAUTH_CLIENT_SECRET=your_google_oauth_client_secret
 GOOGLE_OAUTH_REDIRECT_URI=https://indian-tech-job-market-intelligence.onrender.com/api/auth/callback
-FLASK_SECRET_KEY=sk-gravito-prod-2026-secure-key-abcd1234efgh5678ijkl
+FLASK_SECRET_KEY=generate_a_secure_random_string_here
 FLASK_ENV=production
 DEBUG=False
 RENDER=true
