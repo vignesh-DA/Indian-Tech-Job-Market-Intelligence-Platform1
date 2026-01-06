@@ -157,7 +157,14 @@ celerybeat.pid
 .envrc
 .venv
 env/
-data/
+# Data directory - exclude everything except job CSVs
+data/profile_pics/
+data/users.db
+data/*.json
+data/*.xlsx
+data/*.txt
+# But include CSV job data
+!data/*.csv
 venv/
 ENV/
 env.bak/
