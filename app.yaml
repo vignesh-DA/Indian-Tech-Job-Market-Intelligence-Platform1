@@ -1,0 +1,8 @@
+runtime: python311
+
+env: standard
+entrypoint: gunicorn --bind 0.0.0.0:${PORT} --workers 4 --threads 2 --worker-class gthread --timeout 60 server:app
+
+env_variables:
+  FLASK_ENV: "production"
+  PYTHONUNBUFFERED: "1"

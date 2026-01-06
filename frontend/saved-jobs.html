@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Saved Jobs - Tech Job Intelligence</title>
+    <link rel="stylesheet" href="/assets/css/variables.css">
+    <link rel="stylesheet" href="/assets/css/styles.css">
+    <link rel="stylesheet" href="/assets/css/components.css">
+    <link rel="stylesheet" href="/assets/css/responsive.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="navbar-container">
+            <div class="navbar-brand">
+                <i class="fas fa-briefcase"></i>
+                <span>Tech Job Intelligence</span>
+            </div>
+            
+            <div class="navbar-right">
+                <ul class="navbar-menu">
+                    <li><a href="/" class="nav-link">Home</a></li>
+                    <li><a href="/recommendations" class="nav-link">Recommendations</a></li>
+                    <li><a href="/dashboard" class="nav-link">Dashboard</a></li>
+                    <li><a href="/saved-jobs" class="nav-link active">Saved Jobs</a></li>
+                </ul>
+                
+                <!-- Profile Icon -->
+                <div class="nav-profile-item">
+                    <div class="profile-wrapper" id="profileBtn" title="Profile">
+                        <i id="profileImg" class="fas fa-user-circle" style="font-size: 32px; color: #3b82f6; cursor: pointer;"></i>
+                    </div>
+                    
+                    <!-- Dropdown Menu -->
+                    <div class="profile-dropdown" id="profileDropdown">
+                        <div class="dropdown-header">
+                            <i id="dropdownProfilePic" class="fas fa-user-circle" style="font-size: 40px; color: #3b82f6;"></i>
+                            <div class="dropdown-user-info">
+                                <div class="dropdown-user-name" id="dropdownUserName">User</div>
+                                <div class="dropdown-user-email" id="dropdownUserEmail">user@example.com</div>
+                            </div>
+                        </div>
+                        <div class="dropdown-divider"></div>
+                        <a href="#" class="dropdown-item" id="logoutBtn">
+                            <i class="fas fa-sign-out-alt"></i>
+                            <span>Logout</span>
+                        </a>
+                    </div>
+                </div>
+                
+                <div class="navbar-toggle" id="navToggle">
+                    <span></span>
+                    <span></span>
+                    <span></span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container" style="padding-top: var(--spacing-2xl); padding-bottom: var(--spacing-2xl);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--spacing-2xl);">
+                <div>
+                    <h1 style="margin-bottom: var(--spacing-sm);">💾 Saved Jobs</h1>
+                    <p style="color: var(--text-secondary);">
+                        Jobs you've bookmarked for later review
+                    </p>
+                </div>
+                <button class="btn btn-secondary" id="clearAllBtn" style="display: none;">
+                    <i class="fas fa-trash"></i> Clear All
+                </button>
+            </div>
+
+            <!-- Filter/Search -->
+            <div class="card" style="margin-bottom: var(--spacing-2xl);">
+                <div class="card-body">
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--spacing-md);">
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label" style="margin-bottom: var(--spacing-sm);">Search Jobs</label>
+                            <input type="text" id="searchInput" class="form-input" placeholder="Search by title, company, or location...">
+                        </div>
+                        <div class="form-group" style="margin-bottom: 0;">
+                            <label class="form-label" style="margin-bottom: var(--spacing-sm);">Status</label>
+                            <select id="statusFilter" class="form-select">
+                                <option value="">All</option>
+                                <option value="interested">Interested</option>
+                                <option value="applied">Applied</option>
+                                <option value="rejected">Not Interested</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; align-items: flex-end;">
+                            <button class="btn btn-primary" id="filterBtn" style="width: 100%;">
+                                <i class="fas fa-filter"></i> Filter
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Jobs Container -->
+            <div id="savedJobsContainer">
+                <div style="text-align: center; padding: var(--spacing-3xl);">
+                    <i class="fas fa-inbox" style="font-size: var(--text-4xl); color: var(--text-light); margin-bottom: var(--spacing-lg); display: block;"></i>
+                    <h3>No saved jobs yet</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: var(--spacing-lg);">
+                        Start exploring job recommendations and save jobs to track them here.
+                    </p>
+                    <a href="/recommendations" class="btn btn-primary">
+                        <i class="fas fa-search"></i> Find Jobs
+                    </a>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-section">
+                    <h4>Tech Job Intelligence</h4>
+                    <p>Your AI-powered job search assistant for the Indian tech market, helping you understand why a job fits you – not just showing listings.</p>
+                </div>
+                <div class="footer-section">
+                    <h4>Quick Links</h4>
+                    <ul>
+                        <li><a href="/">Home</a></li>
+                        <li><a href="/recommendations">Recommendations</a></li>
+                        <li><a href="/dashboard">Dashboard</a></li>
+                        <li><a href="/saved-jobs">Saved Jobs</a></li>
+                    </ul>
+                </div>
+                <div class="footer-section">
+                    <h4>About Tech Job Intelligence</h4>
+                    <p style="margin-bottom: var(--spacing-md); color: var(--text-secondary);">Tech Job Intelligence helps you make smarter career decisions using AI-powered job matching, skill-gap analysis, and market insights.</p>
+                    <ul style="list-style: disc; padding-left: 20px;">
+                        <li>Personalized job recommendations</li>
+                        <li>Explainable match scores</li>
+                        <li>Skill improvement guidance</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Floating Chatbot Button & Widget -->
+    <div id="chatbot-button" class="chatbot-button" title="Chat with AI Assistant">
+        <i class="fas fa-comments"></i>
+    </div>
+
+    <div id="chatbot-widget" class="chatbot-widget">
+        <!-- Chatbot Header -->
+        <div class="chatbot-header">
+            <div class="chatbot-title">
+                <i class="fas fa-robot"></i>
+                <span>Career Assistant</span>
+            </div>
+            <button id="chatbot-close" class="chatbot-close" title="Close chat">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+
+        <!-- Chatbot Messages Area -->
+        <div id="chatbot-messages" class="chatbot-messages">
+            <div class="chatbot-message bot-message">
+                <div class="message-content">
+                    <p>👋 Hi! I'm your Career Assistant. I can help you with:</p>
+                    <ul style="margin-top: 8px; margin-left: 16px; font-size: 13px;">
+                        <li>💼 Understanding job opportunities</li>
+                        <li>🎯 Planning your career path</li>
+                        <li>📚 Building missing skills</li>
+                        <li>📊 Market insights & salary info</li>
+                    </ul>
+                    <p style="margin-top: 8px; font-size: 12px; opacity: 0.8;">What can I help you with?</p>
+                </div>
+                <div class="message-time">Just now</div>
+            </div>
+        </div>
+
+        <!-- Chatbot Input Area -->
+        <div class="chatbot-input-area">
+            <input 
+                type="text" 
+                id="chatbot-input" 
+                class="chatbot-input" 
+                placeholder="Type your question..." 
+                autocomplete="off"
+            >
+            <button id="chatbot-send" class="chatbot-send" title="Send message">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/assets/js/config.js"></script>
+    <script src="/assets/js/api.js"></script>
+    <script src="/assets/js/utils.js"></script>
+    <script src="/assets/js/main.js"></script>
+    <script src="/assets/js/profile.js"></script>
+    <script src="/assets/js/chatbot.js"></script>
+    
+    <script>
+        // Initialize page
+        document.addEventListener('DOMContentLoaded', async () => {
+            // Check authentication and load profile
+            await checkAuth();
+            
+            // Setup profile dropdown and logout
+            setupProfileDropdown();
+            setupLogout();
+            
+            // Initialize saved jobs functionality
+            loadSavedJobs();
+        });
+    </script>
+</body>
+</html>
