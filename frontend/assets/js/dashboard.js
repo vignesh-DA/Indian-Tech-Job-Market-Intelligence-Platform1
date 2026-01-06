@@ -67,13 +67,13 @@ async function loadDashboardData() {
             postingTrends
         ] = await Promise.all([
             API.getJobs(1, 1000, { days }),
-            fetch(`http://localhost:5000/api/summary-stats?days=${days}`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/top-skills?days=${days}&top_n=15`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/salary-trends?days=${days}&group_by=location`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/location-stats?days=${days}`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/role-distribution?days=${days}&top_n=10`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/experience-distribution?days=${days}`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/posting-trends?days=${days}`).then(r => r.json())
+            fetch(`${API_BASE_URL}/api/summary-stats?days=${days}`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/top-skills?days=${days}&top_n=15`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/salary-trends?days=${days}&group_by=location`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/location-stats?days=${days}`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/role-distribution?days=${days}&top_n=10`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/experience-distribution?days=${days}`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/posting-trends?days=${days}`).then(r => r.json())
         ]);
 
 
@@ -176,13 +176,13 @@ async function filterAndRender() {
             postingTrends
         ] = await Promise.all([
             API.getJobs(1, 1000, { days, location }),
-            fetch(`http://localhost:5000/api/summary-stats?days=${days}&location=${location}`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/top-skills?days=${days}&location=${location}&top_n=15`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/salary-trends?days=${days}&location=${location}&group_by=title`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/location-stats?days=${days}&location=${location}`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/role-distribution?days=${days}&location=${location}&top_n=10`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/experience-distribution?days=${days}&location=${location}`).then(r => r.json()),
-            fetch(`http://localhost:5000/api/posting-trends?days=${days}&location=${location}`).then(r => r.json())
+            fetch(`${API_BASE_URL}/api/summary-stats?days=${days}&location=${location}`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/top-skills?days=${days}&location=${location}&top_n=15`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/salary-trends?days=${days}&location=${location}&group_by=title`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/location-stats?days=${days}&location=${location}`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/role-distribution?days=${days}&location=${location}&top_n=10`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/experience-distribution?days=${days}&location=${location}`).then(r => r.json()),
+            fetch(`${API_BASE_URL}/api/posting-trends?days=${days}&location=${location}`).then(r => r.json())
         ]);
         
         // Update metrics

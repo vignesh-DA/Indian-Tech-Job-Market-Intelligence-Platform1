@@ -1,7 +1,9 @@
 /* Configuration */
 
-// API Configuration
-const API_BASE_URL = 'http://localhost:5000';
+// API Configuration - Auto-detect environment
+const API_BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5000'
+    : window.location.origin;
 
 const API_ENDPOINTS = {
     STATS: `${API_BASE_URL}/api/stats`,
