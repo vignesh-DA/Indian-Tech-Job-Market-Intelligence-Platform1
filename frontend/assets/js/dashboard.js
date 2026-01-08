@@ -53,7 +53,7 @@ function setupDashboardListeners() {
 async function loadDashboardData() {
     try {
         const days = DOM.byId('daysFilter').value;
-        console.log('Loading dashboard data for', days || 'all', 'days');
+        console.log('🔄 Loading dashboard data for', days || 'all', 'days');
 
         // Build query parameter - only add days if it has a value
         const daysParam = days ? `days=${days}` : '';
@@ -78,9 +78,6 @@ async function loadDashboardData() {
             fetch(`${API_BASE_URL}/api/role-distribution?${daysParam}${daysParam ? '&' : ''}top_n=10`).then(r => r.json()),
             fetch(`${API_BASE_URL}/api/experience-distribution${daysParam ? '?' + daysParam : ''}`).then(r => r.json()),
             fetch(`${API_BASE_URL}/api/posting-trends${daysParam ? '?' + daysParam : ''}`).then(r => r.json())
-        ]);
-            fetch(`${API_BASE_URL}/api/experience-distribution?days=${days}`).then(r => r.json()),
-            fetch(`${API_BASE_URL}/api/posting-trends?days=${days}`).then(r => r.json())
         ]);
 
 
