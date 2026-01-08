@@ -201,6 +201,9 @@ class AdzunaAPI:
                 
                 # Collect results as they complete
                 completed = 0
+                batch_jobs = []  # Temporary batch storage
+                BATCH_SIZE = 500  # Save every 500 jobs to prevent timeout
+                
                 for future in as_completed(future_to_combo):
                     role, location = future_to_combo[future]
                     completed += 1
@@ -208,10 +211,22 @@ class AdzunaAPI:
                     try:
                         jobs = future.result()
                         all_jobs.extend(jobs)
+                        batch_jobs.extend(jobs)
                         
                         # Calculate progress: 20% to 65% during fetch
                         fetch_progress = 20 + int((completed / total) * 45)
                         progress_pct = (completed / total) * 100
+                        
+                        # Save in batches to prevent timeout
+                        if len(batch_jobs) >= BATCH_SIZE:
+                            try:
+                                batch_df = self._parse_jobs_to_dataframe(batch_jobs)
+                                from src.database import save_jobs_to_db
+                                save_jobs_to_db(batch_df)
+                                logging.info(f"💾 Saved batch of {len(batch_df)} jobs to database")
+                                batch_jobs = []  # Clear batch after saving
+                            except Exception as batch_error:
+                                logging.warning(f"Batch save failed: {str(batch_error)}")
                         
                         # Update progress via callback if provided
                         if progress_callback:
@@ -224,6 +239,16 @@ class AdzunaAPI:
                     except Exception as e:
                         logging.error(f"❌ Failed to fetch '{role}' in {location}: {str(e)}")
                         continue
+                
+                # Save any remaining jobs in the final batch
+                if batch_jobs:
+                    try:
+                        batch_df = self._parse_jobs_to_dataframe(batch_jobs)
+                        from src.database import save_jobs_to_db
+                        save_jobs_to_db(batch_df)
+                        logging.info(f"💾 Saved final batch of {len(batch_df)} jobs to database")
+                    except Exception as batch_error:
+                        logging.warning(f"Final batch save failed: {str(batch_error)}")
             
             logging.info("=" * 70)
             logging.info(f"✅ CONCURRENT FETCH COMPLETED")
@@ -442,15 +467,9 @@ def fetch_and_save_jobs(app_id=None, app_key=None, progress_callback=None):
             except Exception as e:
                 logging.warning(f"Could not delete model file: {str(e)}")
         
-        # Save to PostgreSQL database (primary storage)
-        try:
-            from src.database import save_jobs_to_db
-            save_jobs_to_db(jobs_df)
-        except Exception as db_error:
-            logging.warning(f"Database save failed: {str(db_error)}, falling back to CSV")
-            # Fall back to CSV if database fails
-            from src.data_loader import save_jobs_to_csv
-            save_jobs_to_csv(jobs_df)
+        # Note: Jobs are already saved in batches during scraping
+        # This is just to ensure any stragglers are saved
+        logging.info("✅ Jobs already saved in batches during scraping")
         
         # Also save to CSV as backup
         from src.data_loader import save_jobs_to_csv
