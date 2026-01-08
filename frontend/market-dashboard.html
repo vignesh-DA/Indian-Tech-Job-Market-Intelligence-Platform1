@@ -94,13 +94,16 @@
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--spacing-md);">
                         <div class="form-group" style="margin-bottom: 0;">
                             <label class="form-label" style="margin-bottom: var(--spacing-sm);">Days</label>
-                            <select id="daysFilter" class="form-select">
-                                <option value="">All Jobs</option>
-                                <option value="7">Last 7 days</option>
-                                <option value="14">Last 14 days</option>
-                                <option value="30">Last 30 days</option>
-                                <option value="90">Last 90 days</option>
-                            </select>
+                            <div style="position: relative;">
+                                <select id="daysFilter" class="form-select">
+                                    <option value="">All Jobs</option>
+                                    <option value="7">Last 7 days</option>
+                                    <option value="14">Last 14 days</option>
+                                    <option value="30">Last 30 days</option>
+                                    <option value="90">Last 90 days</option>
+                                </select>
+                                <i id="daysLoadingSpinner" class="fas fa-spinner fa-spin" style="position: absolute; right: 35px; top: 50%; transform: translateY(-50%); color: var(--primary-color); display: none;"></i>
+                            </div>
                         </div>
                         <div class="form-group" style="margin-bottom: 0;">
                             <label class="form-label" style="margin-bottom: var(--spacing-sm);">Location</label>

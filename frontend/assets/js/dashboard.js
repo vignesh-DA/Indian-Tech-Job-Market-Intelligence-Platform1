@@ -65,6 +65,10 @@ function setupDashboardListeners() {
 // Load Dashboard Data
 async function loadDashboardData() {
     try {
+        // Show loading spinner
+        const daysSpinner = DOM.byId('daysLoadingSpinner');
+        if (daysSpinner) daysSpinner.style.display = 'block';
+        
         const days = DOM.byId('daysFilter').value;
         console.log('🔄 Loading dashboard data for', days || 'all', 'days');
 
@@ -164,6 +168,10 @@ async function loadDashboardData() {
     } catch (error) {
         console.error('Error loading dashboard data:', error);
         Alert.error('Failed to load dashboard data: ' + error.message);
+    } finally {
+        // Hide loading spinner
+        const daysSpinner = DOM.byId('daysLoadingSpinner');
+        if (daysSpinner) daysSpinner.style.display = 'none';
     }
 }
 
