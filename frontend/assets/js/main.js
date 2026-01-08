@@ -20,6 +20,9 @@ async function initializeApp() {
     // Load last updated time
     await loadLastUpdated();
     
+    // Check if scraping is in progress and resume polling
+    await checkScrapingStatus();
+    
     // Setup navbar
     setupNavbar();
 }
@@ -54,6 +57,59 @@ async function loadLastUpdated() {
         lastUpdatedEl.textContent = `Last updated: ${lastUpdated}`;
     } catch (error) {
         console.error('Error loading last updated:', error);
+    }
+}
+
+// Check Scraping Status on Page Load
+async function checkScrapingStatus() {
+    try {
+        const fetchStatus = DOM.byId('fetchStatus');
+        const fetchJobsBtn = DOM.byId('fetchJobsBtn');
+        if (!fetchStatus || !fetchJobsBtn) return;
+
+        const statusResponse = await fetch('/api/fetch-jobs-status');
+        const statusData = await statusResponse.json();
+        
+        if (statusData.success && statusData.status && statusData.status.is_running) {
+            // Scraping is in progress - show status and resume polling
+            const status = statusData.status;
+            
+            fetchJobsBtn.disabled = true;
+            fetchJobsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Scraping in Progress...';
+            
+            fetchStatus.innerHTML = `
+                <div class="alert alert-info">
+                    ⏳ ${status.message}
+                    <div style="margin-top: 10px;">
+                        <div style="background: #e0e0e0; border-radius: 10px; height: 20px; overflow: hidden;">
+                            <div style="background: linear-gradient(90deg, #4CAF50, #8BC34A); height: 100%; width: ${status.progress}%; transition: width 0.5s;"></div>
+                        </div>
+                        <div style="text-align: center; margin-top: 5px; font-size: 14px;">${status.progress}% Complete</div>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 13px; color: #666;">
+                        💡 <strong>Tip:</strong> Scraping continues in the background. You can close this tab and come back later to see the results.
+                    </div>
+                </div>
+            `;
+            
+            // Resume polling
+            startStatusPolling();
+        } else if (statusData.success && statusData.status) {
+            // Not running - check if there's a completion message
+            const status = statusData.status;
+            if (status.progress === 100 && status.last_completed) {
+                const completedDate = new Date(status.last_completed);
+                const now = new Date();
+                const diffMinutes = (now - completedDate) / (1000 * 60);
+                
+                // Show success message if completed within last 5 minutes
+                if (diffMinutes < 5) {
+                    fetchStatus.innerHTML = `<div class="alert alert-success">✅ ${status.message}</div>`;
+                }
+            }
+        }
+    } catch (error) {
+        console.error('Error checking scraping status:', error);
     }
 }
 
@@ -120,73 +176,22 @@ async function handleFetchJobs() {
 
     try {
         fetchJobsBtn.disabled = true;
-        fetchJobsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
+        fetchJobsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Starting Scraper...';
         
-        fetchStatus.innerHTML = '<div class="alert alert-info">⏳ Fetching fresh job data. This may take 3-5 minutes with concurrent threading. Please do not refresh.</div>';
+        fetchStatus.innerHTML = `
+            <div class="alert alert-info">
+                ⏳ Initiating job scraper... This process runs in the background and may take 3-5 minutes.
+                <div style="margin-top: 10px; font-size: 13px; color: #666;">
+                    💡 <strong>Good news:</strong> You can close this tab! The scraping will continue, and data will be ready when you return.
+                </div>
+            </div>
+        `;
 
         const result = await API.fetchJobs();
 
         if (result.success) {
             // Start polling for status updates
-            let pollCount = 0;
-            const maxPolls = 120; // Poll for up to 10 minutes (5 second intervals)
-            
-            const statusInterval = setInterval(async () => {
-                pollCount++;
-                
-                try {
-                    const statusResponse = await fetch('/api/fetch-jobs-status');
-                    const statusData = await statusResponse.json();
-                    
-                    if (statusData.success && statusData.status) {
-                        const status = statusData.status;
-                        
-                        if (status.is_running) {
-                            // Show progress
-                            fetchStatus.innerHTML = `
-                                <div class="alert alert-info">
-                                    ⏳ ${status.message}
-                                    <div style="margin-top: 10px;">
-                                        <div style="background: #e0e0e0; border-radius: 10px; height: 20px; overflow: hidden;">
-                                            <div style="background: linear-gradient(90deg, #4CAF50, #8BC34A); height: 100%; width: ${status.progress}%; transition: width 0.5s;"></div>
-                                        </div>
-                                        <div style="text-align: center; margin-top: 5px; font-size: 14px;">${status.progress}% Complete</div>
-                                    </div>
-                                </div>
-                            `;
-                        } else {
-                            // Job fetch completed
-                            clearInterval(statusInterval);
-                            
-                            if (status.progress === 100) {
-                                fetchStatus.innerHTML = `<div class="alert alert-success">✅ ${status.message}</div>`;
-                                Alert.success(status.message);
-                            } else {
-                                fetchStatus.innerHTML = `<div class="alert alert-error">❌ ${status.message}</div>`;
-                                Alert.error(status.message);
-                            }
-                            
-                            // Reload stats
-                            setTimeout(async () => {
-                                await loadStats();
-                                await loadLastUpdated();
-                                fetchJobsBtn.disabled = false;
-                                fetchJobsBtn.innerHTML = '<i class="fas fa-download"></i> Fetch Latest Jobs';
-                            }, 2000);
-                        }
-                    }
-                    
-                    // Stop polling after max attempts
-                    if (pollCount >= maxPolls) {
-                        clearInterval(statusInterval);
-                        fetchJobsBtn.disabled = false;
-                        fetchJobsBtn.innerHTML = '<i class="fas fa-download"></i> Fetch Latest Jobs';
-                    }
-                } catch (statusError) {
-                    console.error('Error polling status:', statusError);
-                }
-            }, 5000); // Poll every 5 seconds
-            
+            startStatusPolling();
         } else {
             throw new Error(result.message);
         }
@@ -197,6 +202,98 @@ async function handleFetchJobs() {
         fetchJobsBtn.disabled = false;
         fetchJobsBtn.innerHTML = '<i class="fas fa-download"></i> Fetch Latest Jobs';
     }
+}
+
+// Start Status Polling (extracted for reuse)
+let statusPollInterval = null;
+
+function startStatusPolling() {
+    // Clear any existing interval
+    if (statusPollInterval) {
+        clearInterval(statusPollInterval);
+    }
+    
+    const fetchJobsBtn = DOM.byId('fetchJobsBtn');
+    const fetchStatus = DOM.byId('fetchStatus');
+    
+    if (!fetchJobsBtn || !fetchStatus) return;
+    
+    let pollCount = 0;
+    const maxPolls = 120; // Poll for up to 10 minutes (5 second intervals)
+    
+    statusPollInterval = setInterval(async () => {
+        pollCount++;
+        
+        try {
+            const statusResponse = await fetch('/api/fetch-jobs-status');
+            const statusData = await statusResponse.json();
+            
+            if (statusData.success && statusData.status) {
+                const status = statusData.status;
+                
+                if (status.is_running) {
+                    // Show progress
+                    fetchStatus.innerHTML = `
+                        <div class="alert alert-info">
+                            ⏳ ${status.message}
+                            <div style="margin-top: 10px;">
+                                <div style="background: #e0e0e0; border-radius: 10px; height: 20px; overflow: hidden;">
+                                    <div style="background: linear-gradient(90deg, #4CAF50, #8BC34A); height: 100%; width: ${status.progress}%; transition: width 0.5s;"></div>
+                                </div>
+                                <div style="text-align: center; margin-top: 5px; font-size: 14px;">${status.progress}% Complete</div>
+                            </div>
+                            <div style="margin-top: 10px; font-size: 13px; color: #666;">
+                                💡 <strong>Tip:</strong> This runs in the background. Feel free to close this tab and return later!
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    // Job fetch completed
+                    clearInterval(statusPollInterval);
+                    statusPollInterval = null;
+                    
+                    if (status.progress === 100) {
+                        fetchStatus.innerHTML = `
+                            <div class="alert alert-success">
+                                ✅ ${status.message}
+                                <div style="margin-top: 8px; font-size: 14px;">
+                                    🎉 <strong>Ready to explore!</strong> Check out the <a href="/dashboard" style="color: #4CAF50; text-decoration: underline;">Market Dashboard</a> for latest trends.
+                                </div>
+                            </div>
+                        `;
+                        Alert.success(status.message);
+                    } else {
+                        fetchStatus.innerHTML = `<div class="alert alert-error">❌ ${status.message}</div>`;
+                        Alert.error(status.message);
+                    }
+                    
+                    // Reload stats
+                    setTimeout(async () => {
+                        await loadStats();
+                        await loadLastUpdated();
+                        fetchJobsBtn.disabled = false;
+                        fetchJobsBtn.innerHTML = '<i class="fas fa-download"></i> Fetch Latest Jobs';
+                    }, 2000);
+                }
+            }
+            
+            // Stop polling after max attempts
+            if (pollCount >= maxPolls) {
+                clearInterval(statusPollInterval);
+                statusPollInterval = null;
+                fetchJobsBtn.disabled = false;
+                fetchJobsBtn.innerHTML = '<i class="fas fa-download"></i> Fetch Latest Jobs';
+                
+                fetchStatus.innerHTML = `
+                    <div class="alert alert-warning">
+                        ⏰ Status check timed out. The scraping is still running in the background. Refresh the page in a few minutes to see results.
+                    </div>
+                `;
+            }
+        } catch (statusError) {
+            console.error('Error polling status:', statusError);
+        }
+    }, 5000); // Poll every 5 seconds
 }
 
 // Load Page-Specific Content
