@@ -105,6 +105,9 @@ def load_all_jobs_for_training():
 def save_jobs_to_csv(jobs_df):
     """
     Save jobs dataframe to CSV with today's date
+       
+    WARNING: On platforms with ephemeral storage (like Render free tier),
+    this data will be lost on restart. Use Render Disks or external storage.
     
     Args:
         jobs_df: DataFrame with job data
@@ -112,6 +115,8 @@ def save_jobs_to_csv(jobs_df):
     try:
         data_dir = "data"
         os.makedirs(data_dir, exist_ok=True)
+        
+        logging.warning("⚠️  Saving to ephemeral storage - data may be lost on platform restart!")
         
         # Delete all old CSV files
         csv_files = [f for f in os.listdir(data_dir) if f.endswith('.csv')]

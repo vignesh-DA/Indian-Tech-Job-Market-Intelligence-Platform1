@@ -793,19 +793,24 @@ def get_summary():
         logging.error(f"Error getting summary stats: {str(e)}")
         return jsonify({'success': False, 'message': str(e)}), 500
 
-# API: Fetch latest jobs
-@app.route('/api/fetch-jobs', methods=['POST'])
-def fetch_jobs_api():
-    """Fetch latest jobs from Adzuna API, delete old CSV/pickle, train new model"""
+# Background job status tracking
+job_fetch_status = {
+    'is_running': False,
+    'progress': 0,
+    'message': 'Not started',
+    'last_started': None,
+    'last_completed': None,
+    'jobs_count': 0
+}
+
+def background_job_fetch(app_id, app_key):
+    """Background task to fetch jobs, train model"""
+    global job_fetch_status
+    
     try:
-        app_id = os.getenv('ADZUNA_APP_ID')
-        app_key = os.getenv('ADZUNA_APP_KEY')
-        
-        if not app_id or not app_key:
-            return jsonify({
-                'success': False,
-                'message': 'API credentials not configured'
-            }), 400
+        job_fetch_status['is_running'] = True
+        job_fetch_status['progress'] = 10
+        job_fetch_status['message'] = 'Deleting old models...'
         
         # Step 1: Delete old pickle files
         pickle_file = 'models/recommendation_model.pkl'
@@ -823,49 +828,92 @@ def fetch_jobs_api():
             except Exception as e:
                 logging.warning(f"Could not delete old pickle: {str(e)}")
         
-        # Step 2: Fetch and save new jobs (this also deletes old CSVs)
+        job_fetch_status['progress'] = 20
+        job_fetch_status['message'] = 'Fetching jobs from Adzuna API (this takes ~15 min)...'
+        
+        # WARNING: Render uses ephemeral storage!
+        logging.warning("⚠️  WARNING: Running on ephemeral filesystem - data will be lost on restart!")
+        logging.warning("⚠️  Consider using Render Disks or external storage (S3, GCS) for persistence")
+        
+        # Step 2: Fetch and save new jobs
         result = fetch_and_save_jobs(app_id, app_key)
         
         if result is not None and not result.empty:
+            job_fetch_status['progress'] = 70
+            job_fetch_status['message'] = 'Training recommendation model...'
+            job_fetch_status['jobs_count'] = len(result)
+            
             logging.info("=" * 70)
             logging.info("🔄 TRAINING NEW RECOMMENDATION MODEL")
             logging.info("=" * 70)
             
-            # Step 3: Train new model on fetched data
-            try:
-                recommendation_engine = JobRecommendationEngine()
-                recommendation_engine.train(result)
-                
-                # Step 4: Save new pickle model
-                recommendation_engine.save_model(pickle_file)
-                
-                model_size = os.path.getsize(pickle_file) / (1024*1024)
-                logging.info(f"✅ NEW MODEL SAVED")
-                logging.info(f"   Path: {pickle_file}")
-                logging.info(f"   Size: {model_size:.2f} MB")
-                logging.info(f"   Trained on: {len(result)} jobs")
-                logging.info("=" * 70)
-                
-                return jsonify({
-                    'success': True,
-                    'message': f'✅ Thank you for waiting! Successfully fetched {len(result):,} jobs and Explore the latest trends in the tech market',
-                    'count': len(result),
-                    'model_trained': True,
-                    'timestamp': datetime.now().isoformat()
-                })
-            except Exception as model_error:
-                logging.error(f"Error training/saving model: {str(model_error)}")
-                return jsonify({
-                    'success': False,
-                    'message': f'Data fetched but model training failed: {str(model_error)}',
-                    'count': len(result),
-                    'model_trained': False
-                }), 500
+            # Step 3: Train new model
+            recommendation_engine = JobRecommendationEngine()
+            recommendation_engine.train(result)
+            
+            # Step 4: Save new model
+            recommendation_engine.save_model(pickle_file)
+            
+            model_size = os.path.getsize(pickle_file) / (1024*1024)
+            logging.info(f"✅ NEW MODEL SAVED")
+            logging.info(f"   Path: {pickle_file}")
+            logging.info(f"   Size: {model_size:.2f} MB")
+            logging.info(f"   Trained on: {len(result)} jobs")
+            logging.info("=" * 70)
+            
+            job_fetch_status['progress'] = 100
+            job_fetch_status['message'] = f'✅ Successfully fetched {len(result):,} jobs!'
+            job_fetch_status['is_running'] = False
+            job_fetch_status['last_completed'] = datetime.now().isoformat()
         else:
+            job_fetch_status['progress'] = 0
+            job_fetch_status['message'] = '❌ Failed to fetch jobs from API'
+            job_fetch_status['is_running'] = False
+            
+    except Exception as e:
+        logging.error(f"Background job fetch error: {str(e)}")
+        job_fetch_status['progress'] = 0
+        job_fetch_status['message'] = f'❌ Error: {str(e)}'
+        job_fetch_status['is_running'] = False
+
+# API: Start job fetch (non-blocking)
+@app.route('/api/fetch-jobs', methods=['POST'])
+def fetch_jobs_api():
+    """Start background job fetch - returns immediately"""
+    global job_fetch_status
+    
+    try:
+        if job_fetch_status['is_running']:
             return jsonify({
                 'success': False,
-                'message': 'Failed to fetch jobs from API'
+                'message': 'Job fetch already in progress',
+                'status': job_fetch_status
             }), 400
+        
+        app_id = os.getenv('ADZUNA_APP_ID')
+        app_key = os.getenv('ADZUNA_APP_KEY')
+        
+        if not app_id or not app_key:
+            return jsonify({
+                'success': False,
+                'message': 'API credentials not configured'
+            }), 400
+        
+        # Start background thread
+        import threading
+        thread = threading.Thread(target=background_job_fetch, args=(app_id, app_key))
+        thread.daemon = True
+        thread.start()
+        
+        job_fetch_status['last_started'] = datetime.now().isoformat()
+        
+        logging.info("🚀 Job fetch started in background")
+        
+        return jsonify({
+            'success': True,
+            'message': 'Job fetch started! Check /api/fetch-jobs-status for progress. This takes about 15 minutes.',
+            'status': job_fetch_status
+        })
     
     except Exception as e:
         logging.error(f"Error in fetch_jobs_api: {str(e)}")
@@ -873,6 +921,15 @@ def fetch_jobs_api():
             'success': False,
             'message': str(e)
         }), 500
+
+# API: Check job fetch status
+@app.route('/api/fetch-jobs-status', methods=['GET'])
+def fetch_jobs_status():
+    """Get current status of background job fetch"""
+    return jsonify({
+        'success': True,
+        'status': job_fetch_status
+    })
 
 # API: Get last updated timestamp
 @app.route('/api/last-updated', methods=['GET'])
