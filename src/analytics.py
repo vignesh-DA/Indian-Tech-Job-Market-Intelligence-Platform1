@@ -225,9 +225,17 @@ def get_posting_trends(jobs_df, days=None):
         daily_counts = recent_jobs.groupby('date').size().reset_index(name='count')
         daily_counts['date'] = pd.to_datetime(daily_counts['date'])
         
+        # Determine date range
+        if days is not None:
+            # Use cutoff date for specific days range
+            start_date = cutoff_date.date()
+        else:
+            # Use earliest job posting date for all jobs
+            start_date = daily_counts['date'].min().date() if not daily_counts.empty else datetime.now().date()
+        
         # Fill missing dates with 0
         date_range = pd.date_range(
-            start=cutoff_date.date(),
+            start=start_date,
             end=datetime.now().date(),
             freq='D'
         )
