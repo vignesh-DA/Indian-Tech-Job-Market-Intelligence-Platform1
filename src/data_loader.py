@@ -33,7 +33,7 @@ def load_recent_jobs(days=30):
         df = load_jobs_from_db(days=days)
         
         if not df.empty:
-            logging.info(f"✅ Loaded {len(df)} jobs from PostgreSQL")
+            logging.info(f"Loaded {len(df)} jobs from PostgreSQL")
             return df
         else:
             logging.warning("No jobs in PostgreSQL, falling back to CSV")
@@ -165,7 +165,7 @@ def save_jobs_to_csv(jobs_df):
         logging.info("=" * 60)
         logging.info("CREATING NEW CSV FILE")
         logging.info("=" * 60)
-        logging.info(f"✅ CSV CREATED: {filename}")
+        logging.info(f"CSV CREATED: {filename}")
         logging.info(f"   - Jobs: {len(jobs_df)}")
         logging.info(f"   - Size: {file_size:.2f} MB")
         logging.info(f"   - Path: {filepath}")

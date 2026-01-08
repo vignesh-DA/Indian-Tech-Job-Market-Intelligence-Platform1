@@ -3,12 +3,16 @@ PostgreSQL Database Module for Persistent Job Storage
 Replaces CSV file storage with persistent database
 """
 import os
+from dotenv import load_dotenv
 from sqlalchemy import create_engine, Column, String, Integer, Float, DateTime, Text, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, scoped_session
 from datetime import datetime
 import pandas as pd
 from src.logger import logging
+
+# Load environment variables
+load_dotenv()
 
 # Database connection URL (from environment variable)
 DATABASE_URL = os.getenv('DATABASE_URL', 'sqlite:///gravito.db')
@@ -129,73 +133,73 @@ def save_jobs_to_db(jobs_df):
         cutoff_date = datetime.utcnow() - timedelta(days=30)
         deleted_count = session.query(Job).filter(Job.posted_date < cutoff_date).delete()
         if deleted_count > 0:
-            logging.info(f"🗑️  Deleted {deleted_count} old jobs (>30 days)")
+            logging.info(f"Deleted {deleted_count} old jobs (>30 days)")
         
-        # Insert/update new jobs
-        inserted = 0
-        updated = 0
-        
+        # Bulk insert - much faster than individual inserts
+        jobs_to_insert = []
         for _, row in jobs_df.iterrows():
-            try:
-                job_id = str(row.get('job_id', ''))
-                
-                # Check if job already exists
-                existing_job = session.query(Job).filter(Job.job_id == job_id).first()
-                
-                if existing_job:
-                    # Update existing job
-                    existing_job.title = row.get('title', '')
-                    existing_job.company = row.get('company', '')
-                    existing_job.location = row.get('location', '')
-                    existing_job.skills = str(row.get('skills', ''))
-                    existing_job.experience = row.get('experience', '')
-                    existing_job.salary = row.get('salary', '')
-                    existing_job.salary_min = int(row.get('salary_min', 0)) if pd.notna(row.get('salary_min')) else 0
-                    existing_job.salary_max = int(row.get('salary_max', 0)) if pd.notna(row.get('salary_max')) else 0
-                    existing_job.description = row.get('description', '')
-                    existing_job.url = row.get('url', '')
-                    existing_job.category = row.get('category', '')
-                    updated += 1
-                else:
-                    # Create new job
-                    job = Job(
-                        job_id=job_id,
-                        title=row.get('title', ''),
-                        company=row.get('company', ''),
-                        location=row.get('location', ''),
-                        skills=str(row.get('skills', '')),
-                        experience=row.get('experience', ''),
-                        salary=row.get('salary', ''),
-                        salary_min=int(row.get('salary_min', 0)) if pd.notna(row.get('salary_min')) else 0,
-                        salary_max=int(row.get('salary_max', 0)) if pd.notna(row.get('salary_max')) else 0,
-                        description=row.get('description', ''),
-                        url=row.get('url', ''),
-                        category=row.get('category', ''),
-                        posted_date=row.get('posted_date', datetime.utcnow())
-                    )
-                    session.add(job)
-                    inserted += 1
-                    
-            except Exception as e:
-                logging.warning(f"Could not save job {job_id}: {str(e)}")
-                continue
+            # Parse posted_date to native Python datetime (remove timezone)
+            posted_date = row.get('posted_date')
+            if posted_date and pd.notna(posted_date):
+                # Convert to Python datetime, remove timezone
+                posted_date = pd.to_datetime(posted_date, utc=True).tz_localize(None).to_pydatetime()
+            else:
+                posted_date = datetime.utcnow()
+            
+            job_dict = {
+                'job_id': str(row.get('job_id', '')),
+                'title': row.get('title', ''),
+                'company': row.get('company', ''),
+                'location': row.get('location', ''),
+                'skills': str(row.get('skills', '')),
+                'experience': row.get('experience', ''),
+                'salary': row.get('salary', ''),
+                'salary_min': int(row.get('salary_min', 0)) if pd.notna(row.get('salary_min')) else 0,
+                'salary_max': int(row.get('salary_max', 0)) if pd.notna(row.get('salary_max')) else 0,
+                'description': row.get('description', ''),
+                'url': row.get('url', ''),
+                'category': row.get('category', ''),
+                'posted_date': posted_date,
+                'created_at': datetime.utcnow()
+            }
+            jobs_to_insert.append(job_dict)
         
-        # Commit all changes
+        # Bulk insert with conflict resolution (upsert)
+        from sqlalchemy.dialects.postgresql import insert
+        stmt = insert(Job).values(jobs_to_insert)
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['job_id'],
+            set_={
+                'title': stmt.excluded.title,
+                'company': stmt.excluded.company,
+                'location': stmt.excluded.location,
+                'skills': stmt.excluded.skills,
+                'experience': stmt.excluded.experience,
+                'salary': stmt.excluded.salary,
+                'salary_min': stmt.excluded.salary_min,
+                'salary_max': stmt.excluded.salary_max,
+                'description': stmt.excluded.description,
+                'url': stmt.excluded.url,
+                'category': stmt.excluded.category,
+                'posted_date': stmt.excluded.posted_date
+            }
+        )
+        session.execute(stmt)
         session.commit()
         
+        total_count = session.query(Job).count()
         logging.info("=" * 70)
-        logging.info("✅ SAVED JOBS TO POSTGRESQL")
+        logging.info("SAVED JOBS TO POSTGRESQL")
         logging.info("=" * 70)
-        logging.info(f"   Inserted: {inserted} new jobs")
-        logging.info(f"   Updated: {updated} existing jobs")
-        logging.info(f"   Total in database: {session.query(Job).count()}")
+        logging.info(f"   Processed: {len(jobs_to_insert)} jobs")
+        logging.info(f"   Total in database: {total_count}")
         logging.info("=" * 70)
         
-        return inserted + updated
+        return len(jobs_to_insert)
         
     except Exception as e:
         session.rollback()
-        logging.error(f"❌ Error saving jobs to database: {str(e)}")
+        logging.error(f"Error saving jobs to database: {str(e)}")
         raise
     finally:
         session.close()
@@ -241,7 +245,7 @@ def load_jobs_from_db(days=30, location=None, limit=10000):
         return df
         
     except Exception as e:
-        logging.error(f"❌ Error loading from database: {str(e)}")
+        logging.error(f"Error loading from database: {str(e)}")
         return pd.DataFrame()  # Return empty DataFrame on error
     finally:
         session.close()
