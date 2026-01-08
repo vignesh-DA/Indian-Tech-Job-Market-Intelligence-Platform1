@@ -35,11 +35,11 @@ class GoogleOAuth:
         self.profile_pics_dir = 'data/profile_pics'
         os.makedirs(self.profile_pics_dir, exist_ok=True)
         
-        logging.info(f"🔐 OAuth initialized for {self.environment} environment")
-        logging.info(f"📍 Using redirect URI: {self.redirect_uri}")
+        logging.info(f"OAuth initialized for {self.environment} environment")
+        logging.info(f"Using redirect URI: {self.redirect_uri}")
         
         if not self.client_id or not self.client_secret:
-            logging.warning("⚠️ Google OAuth credentials not configured in .env")
+            logging.warning("Google OAuth credentials not configured in .env")
     
     def _detect_environment(self) -> str:
         """

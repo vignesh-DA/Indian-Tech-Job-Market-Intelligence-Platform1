@@ -41,6 +41,14 @@ GEMINI_AVAILABLE = True  # Will be set based on API key availability
 # Load environment variables
 load_dotenv()
 
+# Initialize PostgreSQL database
+try:
+    from src.database import init_db
+    init_db()
+except Exception as e:
+    logging.warning(f"Database initialization skipped: {str(e)}")
+    logging.info("Will use CSV fallback for data storage")
+
 # Initialize Flask app
 app = Flask(__name__, 
             static_folder='frontend/assets',
@@ -85,7 +93,7 @@ def get_auth_url():
         auth_url = oauth.get_authorization_url()
         return jsonify({'auth_url': auth_url})
     except Exception as e:
-        logging.error(f"❌ Error getting auth URL: {str(e)}")
+        logging.error(f"Error getting auth URL: {str(e)}")
         return jsonify({'error': 'Failed to get authorization URL'}), 500
 
 @app.route('/api/auth/callback', methods=['GET'])
@@ -97,18 +105,18 @@ def oauth_callback():
         error = request.args.get('error')
         
         if error:
-            logging.warning(f"⚠️ OAuth error: {error}")
+            logging.warning(f"OAuth error: {error}")
             return redirect(f'/login?error={error}')
         
         if not code:
-            logging.error("❌ No authorization code received")
+            logging.error("No authorization code received")
             return redirect('/login?error=no_code')
         
         # Exchange code for token and get user info
         success, user, error_msg = oauth.handle_oauth_callback(code)
         
         if not success:
-            logging.error(f"❌ OAuth callback failed: {error_msg}")
+            logging.error(f"OAuth callback failed: {error_msg}")
             return redirect(f'/login?error={error_msg}')
         
         # Create session
@@ -118,13 +126,13 @@ def oauth_callback():
         session['user_name'] = user['name']
         session['user_picture'] = user['picture']
         
-        logging.info(f"✅ User {user['email']} logged in successfully")
+        logging.info(f"User {user['email']} logged in successfully")
         
         # Redirect to home page
         return redirect('/')
     
     except Exception as e:
-        logging.error(f"❌ OAuth callback error: {str(e)}")
+        logging.error(f"OAuth callback error: {str(e)}")
         return redirect(f'/login?error=callback_failed')
 
 @app.route('/api/auth/logout', methods=['POST'])
@@ -133,10 +141,10 @@ def logout():
     try:
         user_email = session.get('user_email', 'Unknown')
         session.clear()
-        logging.info(f"✅ User {user_email} logged out")
+        logging.info(f"User {user_email} logged out")
         return jsonify({'success': True, 'message': 'Logged out successfully'})
     except Exception as e:
-        logging.error(f"❌ Logout error: {str(e)}")
+        logging.error(f"Logout error: {str(e)}")
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/auth/user', methods=['GET'])
@@ -159,7 +167,7 @@ def get_current_user():
             }
         })
     except Exception as e:
-        logging.error(f"❌ Error getting user info: {str(e)}")
+        logging.error(f"Error getting user info: {str(e)}")
         return jsonify({'authenticated': False})
 
 # ========================
@@ -810,7 +818,7 @@ def background_job_fetch(app_id, app_key):
     try:
         job_fetch_status['is_running'] = True
         job_fetch_status['progress'] = 10
-        job_fetch_status['message'] = 'Deleting old models...'
+        job_fetch_status['message'] = 'Preparing database for fresh data...'
         
         # Step 1: Delete old pickle files
         pickle_file = 'models/recommendation_model.pkl'
@@ -819,7 +827,7 @@ def background_job_fetch(app_id, app_key):
                 file_size = os.path.getsize(pickle_file) / (1024*1024)
                 os.remove(pickle_file)
                 logging.info("=" * 70)
-                logging.info("🗑️  DELETED OLD PICKLE MODEL")
+                logging.info("DELETED OLD PICKLE MODEL")
                 logging.info("=" * 70)
                 logging.info(f"   Path: {pickle_file}")
                 logging.info(f"   Size: {file_size:.2f} MB")
@@ -829,18 +837,23 @@ def background_job_fetch(app_id, app_key):
                 logging.warning(f"Could not delete old pickle: {str(e)}")
         
         job_fetch_status['progress'] = 20
-        job_fetch_status['message'] = 'Fetching jobs from Adzuna API (this takes ~15 min)...'
+        job_fetch_status['message'] = 'Starting to scan job opportunities...'
+        
+        # Define progress callback
+        def update_progress(progress, message):
+            job_fetch_status['progress'] = progress
+            job_fetch_status['message'] = message
         
         # WARNING: Render uses ephemeral storage!
-        logging.warning("⚠️  WARNING: Running on ephemeral filesystem - data will be lost on restart!")
-        logging.warning("⚠️  Consider using Render Disks or external storage (S3, GCS) for persistence")
+        logging.warning("WARNING: Running on ephemeral filesystem - data will be lost on restart!")
+        logging.warning("Consider using Render Disks or external storage (S3, GCS) for persistence")
         
         # Step 2: Fetch and save new jobs
-        result = fetch_and_save_jobs(app_id, app_key)
+        result = fetch_and_save_jobs(app_id, app_key, progress_callback=update_progress)
         
         if result is not None and not result.empty:
             job_fetch_status['progress'] = 70
-            job_fetch_status['message'] = 'Training recommendation model...'
+            job_fetch_status['message'] = 'Analyzing jobs and training AI recommendation engine...'
             job_fetch_status['jobs_count'] = len(result)
             
             logging.info("=" * 70)
@@ -855,19 +868,19 @@ def background_job_fetch(app_id, app_key):
             recommendation_engine.save_model(pickle_file)
             
             model_size = os.path.getsize(pickle_file) / (1024*1024)
-            logging.info(f"✅ NEW MODEL SAVED")
+            logging.info(f"NEW MODEL SAVED")
             logging.info(f"   Path: {pickle_file}")
             logging.info(f"   Size: {model_size:.2f} MB")
             logging.info(f"   Trained on: {len(result)} jobs")
             logging.info("=" * 70)
             
             job_fetch_status['progress'] = 100
-            job_fetch_status['message'] = f'✅ Successfully fetched {len(result):,} jobs!'
+            job_fetch_status['message'] = f'✅ Successfully updated! Found {len(result):,} fresh job opportunities!'
             job_fetch_status['is_running'] = False
             job_fetch_status['last_completed'] = datetime.now().isoformat()
         else:
             job_fetch_status['progress'] = 0
-            job_fetch_status['message'] = '❌ Failed to fetch jobs from API'
+            job_fetch_status['message'] = '❌ Unable to fetch new jobs. Please try again later.'
             job_fetch_status['is_running'] = False
             
     except Exception as e:
@@ -911,7 +924,7 @@ def fetch_jobs_api():
         
         return jsonify({
             'success': True,
-            'message': 'Job fetch started! Check /api/fetch-jobs-status for progress. This takes about 15 minutes.',
+            'message': 'Fetching the latest job listings… This may take a few minutes. Please stay on this page while we update the results.',
             'status': job_fetch_status
         })
     
@@ -978,10 +991,10 @@ chatbot = ChatbotEngine()
 # Check if OpenRouter API key is configured
 openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
 if openrouter_api_key:
-    logging.info("✅ OpenRouter API key found - Gemini 2.5 Flash enabled")
+    logging.info("OpenRouter API key found - Gemini 2.5 Flash enabled")
     OPENROUTER_AVAILABLE = True
 else:
-    logging.warning("⚠️ OPENROUTER_API_KEY not found in .env - using fallback responses")
+    logging.warning("OPENROUTER_API_KEY not found in .env - using fallback responses")
     OPENROUTER_AVAILABLE = False
 
 @app.route('/api/chat', methods=['POST'])
@@ -1012,13 +1025,17 @@ def chat():
         user_profile = data.get('user_profile', {})
         conversation_history = data.get('conversation_history', [])
         
+        # Get user's name from session and add to profile
+        user_name = session.get('user_name', 'there')
+        user_profile['name'] = user_name  # Add name to profile for fallback responses
+        
         if not user_message:
             return jsonify({
                 'success': False,
                 'message': 'Message cannot be empty'
             }), 400
         
-        logging.info(f"🤖 Chat request: {user_message[:100]}")
+        logging.info(f"Chat request from {user_name}: {user_message[:100]}")
         
         # Get current job recommendations for context (skip if error)
         recommendations = []
@@ -1027,7 +1044,7 @@ def chat():
             if not jobs.empty:
                 recommendations = jobs.to_dict('records')[:5]
         except Exception as rec_error:
-            logging.warning(f"⚠️ Could not load recommendations: {str(rec_error)}")
+            logging.warning(f"Could not load recommendations: {str(rec_error)}")
             # Continue without recommendations
         
         # Generate response using Google Gemini API (with OpenRouter fallback)
@@ -1036,11 +1053,12 @@ def chat():
             user_profile=user_profile,
             conversation_history=conversation_history,
             recommendations=recommendations,
-            use_gemini=GEMINI_AVAILABLE
+            use_gemini=GEMINI_AVAILABLE,
+            user_name=user_name
         )
         
         if response['success']:
-            logging.info(f"✅ Chat response generated - Intent: {response['intent']}")
+            logging.info(f"Chat response generated - Intent: {response['intent']}")
             return jsonify({
                 'success': True,
                 'message': response['message'],

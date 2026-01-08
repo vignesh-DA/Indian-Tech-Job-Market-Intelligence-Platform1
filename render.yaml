@@ -9,3 +9,15 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.8
+      - key: DATABASE_URL
+        fromDatabase:
+          name: gravito-db
+          property: connectionString
+  
+  # PostgreSQL Database - Persistent Data Storage
+  - type: pserv
+    name: gravito-db
+    plan: starter
+    region: oregon
+    ipAllowList: []
+    postgresSQLVersion: "15"

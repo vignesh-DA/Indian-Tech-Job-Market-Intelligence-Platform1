@@ -68,7 +68,10 @@ class ChatbotEngine:
             'learning_roadmap': [
                 "learning roadmap", "how to learn", "learning path", "step by step guide",
                 "course recommendations", "learning resources", "teach me python",
-                "how do i start", "youtube links for learning", "training plan", "beginner guide"
+                "how do i start", "youtube links for learning", "training plan", "beginner guide",
+                "ai engineering roadmap", "machine learning roadmap", "data science roadmap",
+                "guidance about roadmap", "roadmap for ai", "how to become ai engineer",
+                "career roadmap", "learning guide", "study plan", "what to learn"
             ],
             'salary_info': [
                 "salary information", "salary range", "market salary", "compensation",
@@ -278,10 +281,10 @@ class ChatbotEngine:
         # 3. Gemini API key is available
         if use_ai and nlp_confidence < 0.4 and self.gemini_api_key:
             try:
-                logging.info(f"ℹ️ NLP confidence low ({nlp_confidence:.2f}), trying AI intent detection...")
+                logging.info(f"NLP confidence low ({nlp_confidence:.2f}), trying AI intent detection...")
                 return self._detect_intent_ai(user_message, logging)
             except Exception as e:
-                logging.warning(f"⚠️ AI intent detection failed: {str(e)}. Using NLP result.")
+                logging.warning(f"AI intent detection failed: {str(e)}. Using NLP result.")
                 return nlp_intent, nlp_category, nlp_confidence
         
         # Return NLP result
@@ -329,12 +332,12 @@ Respond ONLY with valid JSON format (no markdown):
                 confidence = 0.1
             
             detected_category = self._get_category(detected_intent)
-            logging.info(f"🧠 AI Intent: {detected_intent} (confidence: {confidence:.2f})")
+            logging.info(f"AI Intent: {detected_intent} (confidence: {confidence:.2f})")
             
             return detected_intent, detected_category, confidence
         
         except Exception as e:
-            logging.error(f"❌ AI intent detection error: {str(e)}")
+            logging.error(f"AI intent detection error: {str(e)}")
             raise
     
     def _detect_intent_nlp(self, user_message: str) -> Tuple[str, str, float]:
@@ -407,14 +410,17 @@ User Profile:
         
         return context
     
-    def create_system_prompt(self) -> str:
-        """Create system prompt for Gemini API"""
-        return """You are an expert Career Assistant for tech professionals in India. Your role is to:
+    def create_system_prompt(self, user_name: str = None) -> str:
+        """Create system prompt for Gemini API with personalization"""
+        greeting_note = f"\n\nIMPORTANT: Address the user as '{user_name}' to make responses personal and friendly." if user_name else ""
+        
+        return f"""You are an expert Career Assistant for tech professionals in India. Your role is to:
 
 1. SKILL ASSESSMENT: Analyze technical skills, identify strengths and gaps
 2. JOB INTELLIGENCE: Explain roles, compare positions, provide company insights
 3. CAREER GUIDANCE: Create personalized career paths and learning roadmaps
 4. MARKET INSIGHTS: Share salary data, trending skills, and market stats
+{greeting_note}
 
 FORMATTING RULES (IMPORTANT):
 • Use bullet points (•) instead of asterisks or dashes for all lists
@@ -451,7 +457,8 @@ Always tailor advice to the user's current experience level and location."""
     def generate_response(self, user_message: str, user_profile: Dict, 
                          conversation_history: List[Dict], 
                          recommendations: List[Dict] = None,
-                         use_gemini: bool = True) -> Dict[str, Any]:
+                         use_gemini: bool = True,
+                         user_name: str = None) -> Dict[str, Any]:
         """
         Generate chatbot response using Google Gemini API
         
@@ -461,11 +468,16 @@ Always tailor advice to the user's current experience level and location."""
             conversation_history: Previous messages
             recommendations: Current job recommendations
             use_gemini: Whether to use Gemini API (True) or fallback (False)
+            user_name: User's first name for personalization
         
         Returns:
             Dict with response and metadata
         """
         from src.logger import logging
+        
+        # Extract first name if full name provided
+        if user_name:
+            user_name = user_name.split()[0]  # Get first name only
         
         # Detect intent
         intent, category, confidence = self.detect_intent(user_message)
@@ -476,16 +488,16 @@ Always tailor advice to the user's current experience level and location."""
         try:
             # Try Google Gemini API first if key available
             if use_gemini and self.gemini_api_key:
-                logging.info(f"🔹 Attempting Google Gemini API - Model: {self.model_name}")
+                logging.info(f"Attempting Google Gemini API - Model: {self.model_name}")
                 
                 try:
                     # Configure Gemini API
                     genai.configure(api_key=self.gemini_api_key)
                     
-                    # Create the model instance
+                    # Create the model instance with personalized prompt
                     model = genai.GenerativeModel(
                         model_name=self.model_name,
-                        system_instruction=self.create_system_prompt()
+                        system_instruction=self.create_system_prompt(user_name)
                     )
                     
                     # Build the full prompt with context and history
@@ -506,7 +518,7 @@ Provide a helpful, specific response focused on career growth and skill developm
                     response = model.generate_content(
                         full_prompt,
                         generation_config=genai.types.GenerationConfig(
-                            max_output_tokens=500,
+                            max_output_tokens=2000,
                             temperature=0.7,
                             top_p=0.9,
                             top_k=40
@@ -516,10 +528,10 @@ Provide a helpful, specific response focused on career growth and skill developm
                     bot_message = response.text
                     # Apply humanization for warm, readable output
                     bot_message = self.humanize_ai_text(bot_message)
-                    logging.info(f"✅ Google Gemini API response received: {bot_message[:100]}...")
+                    logging.info(f"Google Gemini API response received: {bot_message[:100]}...")
                     
                 except Exception as gemini_error:
-                    logging.warning(f"⚠️ Google Gemini API failed: {str(gemini_error)}")
+                    logging.warning(f"Google Gemini API failed: {str(gemini_error)}")
                     logging.info(f"Trying CSV data analysis...")
                     # Try CSV data analysis first
                     csv_response = self.analyze_csv_data(intent, user_message, user_profile)
@@ -527,18 +539,18 @@ Provide a helpful, specific response focused on career growth and skill developm
                         bot_message = csv_response
                     else:
                         bot_message = self._generate_fallback_response(
-                            intent, category, user_message, user_profile
+                            intent, category, user_message, user_profile, user_name
                         )
             
             else:
                 # No Gemini key available - try CSV analysis first
-                logging.warning(f"⚠️ Gemini API not configured. Trying CSV analysis...")
+                logging.warning(f"Gemini API not configured. Trying CSV analysis...")
                 csv_response = self.analyze_csv_data(intent, user_message, user_profile)
                 if csv_response:
                     bot_message = csv_response
                 else:
                     bot_message = self._generate_fallback_response(
-                        intent, category, user_message, user_profile
+                        intent, category, user_message, user_profile, user_name
                     )
             
             # Apply humanization to ensure consistent friendly tone
@@ -556,9 +568,9 @@ Provide a helpful, specific response focused on career growth and skill developm
         
         except Exception as e:
             # Final fallback for any unexpected errors
-            logging.error(f"❌ Unexpected error in generate_response: {str(e)}")
+            logging.error(f"Unexpected error in generate_response: {str(e)}")
             bot_message = self._generate_fallback_response(
-                intent, category, user_message, user_profile
+                intent, category, user_message, user_profile, user_name
             )
             return {
                 'success': True,
@@ -571,7 +583,8 @@ Provide a helpful, specific response focused on career growth and skill developm
             }
     
     def _generate_fallback_response(self, intent: str, category: str, 
-                                   user_message: str, user_profile: Dict) -> str:
+                                   user_message: str, user_profile: Dict,
+                                   user_name: str = None) -> str:
         """Generate smart fallback response that addresses the specific user intent"""
         
         import random
@@ -581,6 +594,36 @@ Provide a helpful, specific response focused on career growth and skill developm
         exp = user_profile.get('experience', 'mid-level')
         location = user_profile.get('location', 'India')
         intent, category, _ = self.detect_intent(user_message, use_ai=False)
+        
+        # Extract first name if available
+        if user_name:
+            user_name = user_name.split()[0]
+        
+        # Personalized greetings for general intent
+        if intent == 'general' and any(greeting in msg_lower for greeting in ['hello', 'hi', 'hey']):
+            greeting_msg = f"Hi {user_name}! 👋" if user_name else "Hi there! 👋"
+            return f"""{greeting_msg} I'm your AI Career Assistant for the Indian tech market!
+
+I can help you with:
+
+📚 LEARNING - Skill roadmaps, courses, learning paths
+🎯 CAREER - Role guidance, job matches, career planning  
+💼 JOBS - Explain roles, compare jobs, company insights
+📈 MARKET DATA - Salary trends, hot skills, job market
+
+YOUR PROFILE:
+• Role: {role.title()}
+• Experience: {exp}
+• Location: {location}
+• Opportunities: {user_profile.get('total_matched_jobs', 0)} matching jobs
+
+🤔 TRY ASKING ME:
+• "What skills do I need for data science?"
+• "What's the salary for senior engineers?"
+• "Which tech skills are trending now?"
+• "How do I transition to backend development?"
+
+What would be most helpful for you{', ' + user_name if user_name else ''}?"""
         
         # Varied opening phrases (different for each intent)
         openings = {
@@ -824,7 +867,7 @@ What would be most helpful for you?"""
                 return self._analyze_location_data(user_message, user_profile)
             
         except Exception as e:
-            logging.warning(f"⚠️ CSV analysis failed: {str(e)}")
+            logging.warning(f"CSV analysis failed: {str(e)}")
             return None
         
         return None

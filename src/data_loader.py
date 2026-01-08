@@ -17,14 +17,31 @@ CACHE_TTL = 3600  # 1 hour
 
 def load_recent_jobs(days=30):
     """
-    Load jobs from the latest CSV file
+    Load jobs from PostgreSQL database with CSV fallback
     
     Args:
-        days: Number of days to look back (for reference, uses latest file)
+        days: Number of days to look back
         
     Returns:
-        DataFrame with recent jobs from latest file
+        DataFrame with recent jobs
     """
+    try:
+        # Try loading from PostgreSQL first
+        logging.info("Attempting to load jobs from PostgreSQL database")
+        from src.database import load_jobs_from_db
+        
+        df = load_jobs_from_db(days=days)
+        
+        if not df.empty:
+            logging.info(f"✅ Loaded {len(df)} jobs from PostgreSQL")
+            return df
+        else:
+            logging.warning("No jobs in PostgreSQL, falling back to CSV")
+            
+    except Exception as db_error:
+        logging.warning(f"PostgreSQL load failed: {str(db_error)}, using CSV fallback")
+    
+    # Fallback to CSV if database fails or is empty
     try:
         logging.info("Loading jobs from latest CSV file")
         data_dir = "data"

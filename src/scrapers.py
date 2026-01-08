@@ -8,6 +8,8 @@ from datetime import datetime
 import os
 import sys
 import time
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from src.logger import logging
 from src.exception import CustomException
 
@@ -33,6 +35,10 @@ class AdzunaAPI:
         self.app_key = app_key or os.getenv('ADZUNA_APP_KEY', 'YOUR_APP_KEY')
         self.base_url = "https://api.adzuna.com/v1/api/jobs"
         self.country = "in"  # India
+        
+        # Thread lock for rate limiting (3 seconds between API calls)
+        self.rate_limit_lock = threading.Lock()
+        self.last_request_time = 0
         
         logging.info("Initialized Adzuna API client")
     
@@ -66,8 +72,13 @@ class AdzunaAPI:
             
             logging.info(f"Fetching jobs: {keywords} in {location}")
             
-            # Add delay to avoid rate limiting (3 seconds for free tier)
-            time.sleep(3)
+            # Thread-safe rate limiting (3 seconds between calls)
+            with self.rate_limit_lock:
+                current_time = time.time()
+                time_since_last = current_time - self.last_request_time
+                if time_since_last < 3:
+                    time.sleep(3 - time_since_last)
+                self.last_request_time = time.time()
             
             # Add retry logic
             max_retries = 2
@@ -106,42 +117,118 @@ class AdzunaAPI:
             logging.error(f"Error in search_jobs: {str(e)}")
             return []
     
-    def fetch_multiple_roles(self, roles, locations, max_results_per_role=100):
+    def _fetch_single_combination(self, role, location, max_results_per_role=50):
         """
-        Fetch jobs for multiple roles and locations
+        Fetch jobs for a single role-location combination (for parallel execution)
+        
+        Args:
+            role: Job role to search
+            location: Location to search
+            max_results_per_role: Maximum results for this combination
+            
+        Returns:
+            List of job dictionaries
+        """
+        try:
+            jobs = []
+            results_per_page = 50
+            pages_needed = (max_results_per_role // results_per_page) + 1
+            
+            for page in range(1, pages_needed + 1):
+                page_jobs = self.search_jobs(
+                    keywords=role,
+                    location=location,
+                    results_per_page=results_per_page,
+                    page=page
+                )
+                
+                if not page_jobs:
+                    break
+                
+                jobs.extend(page_jobs)
+                
+                if len(jobs) >= max_results_per_role:
+                    break
+            
+            logging.info(f"✓ Fetched {len(jobs)} jobs for '{role}' in {location}")
+            return jobs
+            
+        except Exception as e:
+            logging.error(f"Error fetching '{role}' in {location}: {str(e)}")
+            return []
+    
+    def fetch_multiple_roles(self, roles, locations, max_results_per_role=100, progress_callback=None):
+        """
+        Fetch jobs for multiple roles and locations using concurrent threading
         
         Args:
             roles: List of job roles to search
             locations: List of locations
             max_results_per_role: Maximum results per role
+            progress_callback: Optional callback function(progress, message) for real-time updates
             
         Returns:
             DataFrame with all jobs
         """
         try:
             all_jobs = []
-            results_per_page = 50
             
-            for role in roles:
-                for location in locations:
-                    pages_needed = (max_results_per_role // results_per_page) + 1
+            # Create all role-location combinations
+            combinations = [(role, location) for role in roles for location in locations]
+            total = len(combinations)
+            
+            logging.info("=" * 70)
+            logging.info(f"🚀 CONCURRENT JOB FETCH STARTED")
+            logging.info("=" * 70)
+            logging.info(f"Total combinations: {total} ({len(roles)} roles × {len(locations)} locations)")
+            logging.info(f"Parallel workers: 5 (5 simultaneous API calls)")
+            logging.info(f"Rate limiting: 3 seconds between calls (thread-safe)")
+            logging.info("=" * 70)
+            
+            # Use ThreadPoolExecutor for parallel fetching
+            # max_workers=5: Fetch 5 combinations simultaneously
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                # Submit all tasks
+                future_to_combo = {
+                    executor.submit(
+                        self._fetch_single_combination,
+                        role,
+                        location,
+                        max_results_per_role
+                    ): (role, location)
+                    for role, location in combinations
+                }
+                
+                # Collect results as they complete
+                completed = 0
+                for future in as_completed(future_to_combo):
+                    role, location = future_to_combo[future]
+                    completed += 1
                     
-                    for page in range(1, pages_needed + 1):
-                        jobs = self.search_jobs(
-                            keywords=role,
-                            location=location,
-                            results_per_page=results_per_page,
-                            page=page
-                        )
-                        
-                        if not jobs:
-                            break
-                        
+                    try:
+                        jobs = future.result()
                         all_jobs.extend(jobs)
                         
-                        # Stop if we have enough results
-                        if len(all_jobs) >= max_results_per_role * len(roles) * len(locations):
-                            break
+                        # Calculate progress: 20% to 65% during fetch
+                        fetch_progress = 20 + int((completed / total) * 45)
+                        progress_pct = (completed / total) * 100
+                        
+                        # Update progress via callback if provided
+                        if progress_callback:
+                            progress_callback(
+                                fetch_progress, 
+                                f'🔍 Scanning jobs... {completed}/{total} locations ({progress_pct:.0f}%) | Found {len(all_jobs):,} jobs so far'
+                            )
+                        
+                        logging.info(f"📊 Progress: {completed}/{total} ({progress_pct:.1f}%) | Total jobs: {len(all_jobs)}")
+                    except Exception as e:
+                        logging.error(f"❌ Failed to fetch '{role}' in {location}: {str(e)}")
+                        continue
+            
+            logging.info("=" * 70)
+            logging.info(f"✅ CONCURRENT FETCH COMPLETED")
+            logging.info(f"Total jobs fetched: {len(all_jobs)}")
+            logging.info("=" * 70)
             
             # Convert to DataFrame
             jobs_df = self._parse_jobs_to_dataframe(all_jobs)
@@ -277,13 +364,14 @@ class AdzunaAPI:
             return '0-2 years'
 
 
-def fetch_and_save_jobs(app_id=None, app_key=None):
+def fetch_and_save_jobs(app_id=None, app_key=None, progress_callback=None):
     """
     Main function to fetch jobs and save to CSV with fallback to existing data
     
     Args:
         app_id: Adzuna app ID
         app_key: Adzuna app key
+        progress_callback: Optional callback function(progress, message) to report progress
         
     Returns:
         DataFrame with fetched jobs, or None if fetch fails
@@ -328,10 +416,10 @@ def fetch_and_save_jobs(app_id=None, app_key=None):
             'Kochi'
         ]
         
-        # Fetch jobs with optimized parameters to avoid rate limiting
-        # 15 roles × 10 locations × 50 jobs = ~7,500 total jobs
-        # With 3-second delays: 150 requests, ~6 minutes completion
-        jobs_df = api.fetch_multiple_roles(roles, locations, max_results_per_role=50)
+        # Fetch jobs with concurrent threading
+        # 15 roles × 10 locations × 100 jobs = ~15,000 total jobs
+        # With 5 parallel workers: ~3-5 minutes completion
+        jobs_df = api.fetch_multiple_roles(roles, locations, max_results_per_role=100, progress_callback=progress_callback)
         
         if jobs_df.empty:
             logging.warning("No jobs fetched from API")
@@ -354,7 +442,17 @@ def fetch_and_save_jobs(app_id=None, app_key=None):
             except Exception as e:
                 logging.warning(f"Could not delete model file: {str(e)}")
         
-        # Save to CSV
+        # Save to PostgreSQL database (primary storage)
+        try:
+            from src.database import save_jobs_to_db
+            save_jobs_to_db(jobs_df)
+        except Exception as db_error:
+            logging.warning(f"Database save failed: {str(db_error)}, falling back to CSV")
+            # Fall back to CSV if database fails
+            from src.data_loader import save_jobs_to_csv
+            save_jobs_to_csv(jobs_df)
+        
+        # Also save to CSV as backup
         from src.data_loader import save_jobs_to_csv
         save_jobs_to_csv(jobs_df)
         

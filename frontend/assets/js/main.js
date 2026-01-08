@@ -122,19 +122,71 @@ async function handleFetchJobs() {
         fetchJobsBtn.disabled = true;
         fetchJobsBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Fetching...';
         
-        fetchStatus.innerHTML = '<div class="alert alert-info">⏳ Fetching fresh job data. This may take up to 3 minutes. Please do not refresh.</div>';
+        fetchStatus.innerHTML = '<div class="alert alert-info">⏳ Fetching fresh job data. This may take 3-5 minutes with concurrent threading. Please do not refresh.</div>';
 
         const result = await API.fetchJobs();
 
         if (result.success) {
-            fetchStatus.innerHTML = `<div class="alert alert-success">✅ ${result.message}</div>`;
-            Alert.success(result.message);
+            // Start polling for status updates
+            let pollCount = 0;
+            const maxPolls = 120; // Poll for up to 10 minutes (5 second intervals)
             
-            // Reload stats
-            setTimeout(async () => {
-                await loadStats();
-                await loadLastUpdated();
-            }, 2000);
+            const statusInterval = setInterval(async () => {
+                pollCount++;
+                
+                try {
+                    const statusResponse = await fetch('/api/fetch-jobs-status');
+                    const statusData = await statusResponse.json();
+                    
+                    if (statusData.success && statusData.status) {
+                        const status = statusData.status;
+                        
+                        if (status.is_running) {
+                            // Show progress
+                            fetchStatus.innerHTML = `
+                                <div class="alert alert-info">
+                                    ⏳ ${status.message}
+                                    <div style="margin-top: 10px;">
+                                        <div style="background: #e0e0e0; border-radius: 10px; height: 20px; overflow: hidden;">
+                                            <div style="background: linear-gradient(90deg, #4CAF50, #8BC34A); height: 100%; width: ${status.progress}%; transition: width 0.5s;"></div>
+                                        </div>
+                                        <div style="text-align: center; margin-top: 5px; font-size: 14px;">${status.progress}% Complete</div>
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            // Job fetch completed
+                            clearInterval(statusInterval);
+                            
+                            if (status.progress === 100) {
+                                fetchStatus.innerHTML = `<div class="alert alert-success">✅ ${status.message}</div>`;
+                                Alert.success(status.message);
+                            } else {
+                                fetchStatus.innerHTML = `<div class="alert alert-error">❌ ${status.message}</div>`;
+                                Alert.error(status.message);
+                            }
+                            
+                            // Reload stats
+                            setTimeout(async () => {
+                                await loadStats();
+                                await loadLastUpdated();
+                                fetchJobsBtn.disabled = false;
+                                fetchJobsBtn.innerHTML = '<i class="fas fa-download"></i> Fetch Latest Jobs';
+                            }, 2000);
+                        }
+                    }
+                    
+                    // Stop polling after max attempts
+                    if (pollCount >= maxPolls) {
+                        clearInterval(statusInterval);
+                        fetchJobsBtn.disabled = false;
+                        fetchJobsBtn.innerHTML = '<i class="fas fa-download"></i> Fetch Latest Jobs';
+                    }
+                } catch (statusError) {
+                    console.error('Error polling status:', statusError);
+                }
+            }, 5000); // Poll every 5 seconds
+            
         } else {
             throw new Error(result.message);
         }
@@ -142,7 +194,6 @@ async function handleFetchJobs() {
         console.error('Error fetching jobs:', error);
         fetchStatus.innerHTML = `<div class="alert alert-error">❌ Error: ${error.message}</div>`;
         Alert.error('Failed to fetch jobs: ' + error.message);
-    } finally {
         fetchJobsBtn.disabled = false;
         fetchJobsBtn.innerHTML = '<i class="fas fa-download"></i> Fetch Latest Jobs';
     }

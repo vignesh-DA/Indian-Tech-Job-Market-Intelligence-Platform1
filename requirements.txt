@@ -4,6 +4,10 @@ Flask-CORS==4.0.0
 flask-session==0.5.0
 gunicorn==21.2.0
 
+# Database
+SQLAlchemy==2.0.23
+psycopg2-binary==2.9.9
+
 # Core Dependencies
 pandas==2.2.3
 numpy==1.26.4
