@@ -70,7 +70,7 @@ async function loadDashboardData() {
             experienceDistribution,
             postingTrends
         ] = await Promise.all([
-            API.getJobs(1, 1000, daysQuery),
+            API.getJobs(1, 100, daysQuery),
             fetch(`${API_BASE_URL}/api/summary-stats${daysParam ? '?' + daysParam : ''}`).then(r => r.json()),
             fetch(`${API_BASE_URL}/api/top-skills?${daysParam}${daysParam ? '&' : ''}top_n=15`).then(r => r.json()),
             fetch(`${API_BASE_URL}/api/salary-trends?${daysParam}${daysParam ? '&' : ''}group_by=location`).then(r => r.json()),
@@ -562,8 +562,14 @@ function renderTrendsChart(trends) {
     const ctx = DOM.byId('trendsChart');
     if (!ctx) return;
 
+    if (!trends || trends.length === 0) {
+        console.warn('No trends data to display');
+        return;
+    }
+
     const labels = trends.map(t => t.date);
     const data = trends.map(t => t.count);
+    const maxCount = Math.max(...data);
 
     if (trendsChart) {
         trendsChart.destroy();
@@ -580,7 +586,9 @@ function renderTrendsChart(trends) {
                 backgroundColor: 'rgba(102, 126, 234, 0.1)',
                 fill: true,
                 tension: 0.4,
-                borderWidth: 2,
+                borderWidth: 3,
+                pointRadius: 4,
+                pointHoverRadius: 6,
             }]
         },
         options: {
@@ -588,12 +596,26 @@ function renderTrendsChart(trends) {
             maintainAspectRatio: true,
             plugins: {
                 legend: { display: true },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            return 'Jobs Posted: ' + context.parsed.y;
+                        }
+                    }
+                }
             },
             scales: {
                 y: {
                     beginAtZero: true,
+                    suggestedMax: maxCount > 100 ? Math.ceil(maxCount * 1.1) : 100,
                     grid: { color: 'rgba(0, 0, 0, 0.05)' },
+                    ticks: {
+                        precision: 0
+                    }
                 },
+                x: {
+                    grid: { display: false }
+                }
             },
         },
     });
