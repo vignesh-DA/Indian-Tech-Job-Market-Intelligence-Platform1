@@ -47,9 +47,12 @@ class GoogleOAuth:
     
     def _detect_environment(self) -> str:
         """
-        Detect if running locally or on Render (production)
+        Detect if running locally, on Render, or on Vercel
         Returns: 'production' or 'local'
         """
+        # Check if running on Vercel
+        if os.getenv('VERCEL') == '1':
+            return 'production'
         # Check if running on Render
         if os.getenv('RENDER') == 'true':
             return 'production'
@@ -60,9 +63,15 @@ class GoogleOAuth:
     
     def _get_redirect_uri(self) -> str:
         """
-        Get the correct redirect URI based on environment
+        Get the correct redirect URI based on environment.
+        Always prefer the GOOGLE_OAUTH_REDIRECT_URI env var if set.
         Returns: Full redirect URI for current environment
         """
+        # Use explicit env var if configured (recommended for production)
+        explicit_uri = os.getenv('GOOGLE_OAUTH_REDIRECT_URI')
+        if explicit_uri:
+            return explicit_uri
+        
         if self.environment == 'production':
             return 'https://indian-tech-job-market-intelligence.onrender.com/api/auth/callback'
         else:
