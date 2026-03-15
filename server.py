@@ -66,10 +66,16 @@ app = Flask(__name__,
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour session timeout
 app.config['SESSION_REFRESH_EACH_REQUEST'] = True
-app.config['SESSION_TYPE'] = 'filesystem'
+
 is_vercel = os.environ.get('VERCEL') == '1'
 if is_vercel:
-    app.config['SESSION_FILE_DIR'] = '/tmp/flask_session'
+    # Vercel is stateless — use cookie-based sessions (stored in browser, not server filesystem)
+    app.config['SESSION_TYPE'] = 'cookie'
+    app.config['SESSION_COOKIE_SECURE'] = True
+    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+else:
+    app.config['SESSION_TYPE'] = 'filesystem'
+
 Session(app)
 
 # ---------------------------------------------------------------------------
