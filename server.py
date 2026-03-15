@@ -66,17 +66,16 @@ app = Flask(__name__,
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour session timeout
 app.config['SESSION_REFRESH_EACH_REQUEST'] = True
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('VERCEL') == '1'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
 
 is_vercel = os.environ.get('VERCEL') == '1'
-if is_vercel:
-    # Vercel is stateless — use cookie-based sessions (stored in browser, not server filesystem)
-    app.config['SESSION_TYPE'] = 'cookie'
-    app.config['SESSION_COOKIE_SECURE'] = True
-    app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-else:
+if not is_vercel:
+    # Only use flask-session filesystem storage for local dev
     app.config['SESSION_TYPE'] = 'filesystem'
-
-Session(app)
+    Session(app)
+# On Vercel: use Flask's built-in signed cookie session (cookie-based, no server storage needed)
 
 # ---------------------------------------------------------------------------
 # CACHES (shared within each gunicorn worker process)
