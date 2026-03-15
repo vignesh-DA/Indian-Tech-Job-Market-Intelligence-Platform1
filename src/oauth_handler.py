@@ -190,12 +190,17 @@ class GoogleOAuth:
         if not user_info:
             return False, None, "Failed to retrieve user information"
         
-        # Download and save profile picture locally
+        # Download and save profile picture locally (only on non-Vercel environments)
         google_picture_url = user_info['picture']
-        local_picture_path = self.download_profile_picture(google_picture_url, user_info['email'])
+        is_vercel = os.environ.get('VERCEL') == '1'
         
-        # Use local path if download succeeded, otherwise fallback to Google URL
-        picture_path = local_picture_path if local_picture_path else google_picture_url
+        if is_vercel:
+            # On Vercel, /tmp doesn't persist across invocations — use Google URL directly
+            picture_path = google_picture_url
+        else:
+            local_picture_path = self.download_profile_picture(google_picture_url, user_info['email'])
+            # Use local path if download succeeded, otherwise fallback to Google URL
+            picture_path = local_picture_path if local_picture_path else google_picture_url
         
         # Create or get user in database
         user = user_db.get_or_create_user(
