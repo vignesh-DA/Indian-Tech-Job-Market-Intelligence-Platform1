@@ -32,8 +32,12 @@ class GoogleOAuth:
         self.userinfo_uri = 'https://www.googleapis.com/oauth2/v1/userinfo'
         
         # Profile pictures directory
-        self.profile_pics_dir = 'data/profile_pics'
-        os.makedirs(self.profile_pics_dir, exist_ok=True)
+        is_vercel = os.environ.get('VERCEL') == '1'
+        self.profile_pics_dir = '/tmp/profile_pics' if is_vercel else 'data/profile_pics'
+        try:
+            os.makedirs(self.profile_pics_dir, exist_ok=True)
+        except OSError:
+            pass
         
         logging.info(f"OAuth initialized for {self.environment} environment")
         logging.info(f"Using redirect URI: {self.redirect_uri}")

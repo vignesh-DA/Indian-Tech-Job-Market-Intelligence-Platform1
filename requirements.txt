@@ -16,7 +16,7 @@ numpy==2.2.3
 scikit-learn==1.6.1
 
 # Data Visualization
-plotly==5.18.0
+# plotly removed for Vercel Serverless Function size limits
 
 # API and Web Scraping
 requests==2.31.0

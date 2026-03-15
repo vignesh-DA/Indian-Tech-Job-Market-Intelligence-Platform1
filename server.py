@@ -304,7 +304,9 @@ def saved_jobs_page():
 def serve_profile_pic(filename):
     """Serve profile pictures from local storage"""
     try:
-        return send_from_directory('data/profile_pics', filename)
+        is_vercel = os.environ.get('VERCEL') == '1'
+        pics_dir = '/tmp/profile_pics' if is_vercel else 'data/profile_pics'
+        return send_from_directory(pics_dir, filename)
     except Exception as e:
         logging.error(f"Error serving profile picture: {str(e)}")
         # Return placeholder image
