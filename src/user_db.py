@@ -11,10 +11,17 @@ from typing import Optional, Dict, List
 class UserDatabase:
     """Handle user database operations"""
     
-    def __init__(self, db_path: str = 'data/users.db'):
+    def __init__(self, db_path: str = None):
         """Initialize database connection"""
+        if db_path is None:
+            is_vercel = os.environ.get('VERCEL') == '1'
+            db_path = '/tmp/users.db' if is_vercel else 'data/users.db'
+            
         self.db_path = db_path
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        try:
+            os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        except OSError:
+            pass
         self.init_db()
     
     def init_db(self):
