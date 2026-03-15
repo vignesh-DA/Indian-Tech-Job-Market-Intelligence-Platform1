@@ -1,4 +1,4 @@
- """
+"""
 Job Scrapers Module
 Fetch job data from Adzuna API and other sources
 """
