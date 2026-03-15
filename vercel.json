@@ -1,35 +1,15 @@
 {
   "version": 2,
-  "buildCommand": "echo 'No build required for static HTML/JS'",
-  "outputDirectory": "frontend",
+  "builds": [
+    {
+      "src": "server.py",
+      "use": "@vercel/python"
+    }
+  ],
   "routes": [
     {
-      "src": "/api/(.*)",
-      "dest": "https://indian-tech-job-market-intelligence.onrender.com/api/$1"
-    },
-    {
-      "src": "/(.*)\\.([a-zA-Z0-9]+)$",
-      "dest": "/$1.$2"
-    },
-    {
-      "src": "^/recommendations/?$",
-      "dest": "/recommendations.html"
-    },
-    {
-      "src": "^/dashboard/?$",
-      "dest": "/dashboard.html"
-    },
-    {
-      "src": "^/saved-jobs/?$",
-      "dest": "/saved-jobs.html"
-    },
-    {
-      "src": "^/login/?$",
-      "dest": "/login.html"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/index.html"
+      "dest": "server.py"
     }
   ]
 }
