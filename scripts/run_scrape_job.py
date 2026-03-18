@@ -1,10 +1,12 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 """
 Run the Adzuna scrape job and persist data to the configured database.
 Designed for GitHub Actions scheduled/manual execution.
 """
 
-import os
-import sys
 from dotenv import load_dotenv
 
 from src.logger import logging
