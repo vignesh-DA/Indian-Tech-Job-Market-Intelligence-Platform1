@@ -13,7 +13,6 @@ os.environ['OMP_NUM_THREADS'] = '1'
 
 from flask import Flask, jsonify, request, render_template, send_from_directory, redirect, session
 from flask_cors import CORS
-from flask_session import Session
 from dotenv import load_dotenv
 import pandas as pd
 from datetime import datetime
@@ -81,10 +80,8 @@ app = Flask(__name__,
 
 # Configure Flask session for authentication
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
-app.config['SESSION_TYPE'] = 'filesystem'
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour session timeout
 app.config['SESSION_REFRESH_EACH_REQUEST'] = True  # Refresh session on each request
-Session(app)
 
 # Enable CORS
 CORS(app)
