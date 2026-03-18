@@ -16,8 +16,6 @@ from dotenv import load_dotenv
 import pandas as pd
 from datetime import datetime
 import json
-import threading
-from cachetools import TTLCache
 from src.data_loader import load_recent_jobs
 from src.recommendation_engine import JobRecommendationEngine, get_learning_suggestions
 from src.scrapers import fetch_and_save_jobs
@@ -31,31 +29,25 @@ from src.analytics import (
     get_role_distribution,
     calculate_summary_stats
 )
+from src.chatbot_engine import ChatbotEngine
 from src.oauth_handler import oauth
 from src.user_db import user_db
 from src.logger import logging
 import sys
 
+# Google Gemini API is configured in ChatbotEngine via .env
+GEMINI_AVAILABLE = True  # Will be set based on API key availability
 
 # Load environment variables
 load_dotenv()
 
-# Initialize PostgreSQL database (retry up to 3 times for Render cold-start)
-_db_available = False
-_MAX_DB_INIT_ATTEMPTS = 3
-for _attempt in range(1, _MAX_DB_INIT_ATTEMPTS + 1):
-    try:
-        from src.database import init_db
-        init_db()
-        _db_available = True
-        break
-    except Exception as _e:
-        logging.error(f"Database init attempt {_attempt}/{_MAX_DB_INIT_ATTEMPTS} failed: {_e}")
-        if _attempt < _MAX_DB_INIT_ATTEMPTS:
-            logging.info("Retrying DB init in 3 seconds...")
-            time.sleep(3)
-        else:
-            logging.warning("All DB init attempts failed — falling back to CSV storage")
+# Initialize PostgreSQL database
+try:
+    from src.database import init_db
+    init_db()
+except Exception as e:
+    logging.warning(f"Database initialization skipped: {str(e)}")
+    logging.info("Will use CSV fallback for data storage")
 
 # Initialize Flask app
 app = Flask(__name__, 
@@ -64,30 +56,10 @@ app = Flask(__name__,
 
 # Configure Flask session for authentication
 app.config['SECRET_KEY'] = os.getenv('FLASK_SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['SESSION_TYPE'] = 'filesystem'
 app.config['PERMANENT_SESSION_LIFETIME'] = 3600  # 1 hour session timeout
-app.config['SESSION_REFRESH_EACH_REQUEST'] = True
-app.config['SESSION_COOKIE_SECURE'] = os.environ.get('VERCEL') == '1'
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-
-is_vercel = os.environ.get('VERCEL') == '1'
-if not is_vercel:
-    # Only use flask-session filesystem storage for local dev
-    app.config['SESSION_TYPE'] = 'filesystem'
-    Session(app)
-# On Vercel: use Flask's built-in signed cookie session (cookie-based, no server storage needed)
-
-# ---------------------------------------------------------------------------
-# CACHES (shared within each gunicorn worker process)
-# ---------------------------------------------------------------------------
-# ML model cache: store one trained engine per location key, expire after 30 min
-_model_cache: dict = {}           # key -> {'engine': ..., 'trained_at': timestamp}
-_model_cache_lock = threading.Lock()
-MODEL_CACHE_TTL = 1800  # 30 minutes
-
-# Analytics / stats response cache: expires after 10 minutes
-_response_cache: TTLCache = TTLCache(maxsize=256, ttl=600)
-_cache_lock = threading.Lock()
+app.config['SESSION_REFRESH_EACH_REQUEST'] = True  # Refresh session on each request
+Session(app)
 
 # Enable CORS
 CORS(app)
@@ -106,35 +78,15 @@ def login_required(f):
     return decorated_function
 
 # Helper function to load all jobs without date filtering
-def load_all_jobs(limit: int = 5000):
-    """Load jobs from DB (with retry) then fall back to CSV if DB is unavailable.
-
-    Args:
-        limit: Maximum rows to return (default 5000, most-recently posted first).
-    """
-    cache_key = f'all_jobs:{limit}'
-    with _cache_lock:
-        if cache_key in _response_cache:
-            return _response_cache[cache_key]
-
-    # --- Try PostgreSQL first (uses _with_retry internally) ---
-    try:
-        from src.database import load_jobs_from_db
-        jobs_df = load_jobs_from_db(limit=limit)
-        if not jobs_df.empty:
-            with _cache_lock:
-                _response_cache[cache_key] = jobs_df
-            return jobs_df
-        logging.warning("DB returned empty result — trying CSV fallback")
-    except Exception as db_err:
-        logging.warning(f"DB unavailable in load_all_jobs: {db_err} — falling back to CSV")
-
-    # --- CSV fallback (load_recent_jobs has its own CSV logic) ---
-    from src.data_loader import load_recent_jobs
-    jobs_df = load_recent_jobs(days=None)
-    if not jobs_df.empty:
-        with _cache_lock:
-            _response_cache[cache_key] = jobs_df
+def load_all_jobs():
+    """Load all jobs from database without date filtering"""
+    from src.database import Job, SessionLocal
+    session = SessionLocal()
+    query = session.query(Job).order_by(Job.posted_date.desc())
+    jobs = query.all()
+    data = [job.to_dict() for job in jobs]
+    jobs_df = pd.DataFrame(data)
+    session.close()
     return jobs_df
 
 # ========================
@@ -214,35 +166,17 @@ def get_current_user():
         return jsonify({'authenticated': False})
     
     try:
-        # On Vercel, SQLite DB doesn't persist between invocations.
-        # Serve user info directly from the session cookie (set at login time).
-        user_from_session = {
-            'id': session.get('user_id'),
-            'email': session.get('user_email'),
-            'name': session.get('user_name'),
-            'picture': session.get('user_picture'),
-            'created_at': session.get('user_created_at', ''),
-            'last_login': session.get('user_last_login', '')
-        }
-
-        # Also try DB lookup for richer data, fall back to session if DB unavailable
-        try:
-            db_user = user_db.get_user_by_id(session['user_id'])
-            if db_user:
-                user_from_session = {
-                    'id': db_user['id'],
-                    'email': db_user['email'],
-                    'name': db_user['name'],
-                    'picture': db_user['picture'],
-                    'created_at': db_user.get('created_at', ''),
-                    'last_login': db_user.get('last_login', '')
-                }
-        except Exception:
-            pass  # Fall back to session data
-
+        user = user_db.get_user_by_id(session['user_id'])
         return jsonify({
             'authenticated': True,
-            'user': user_from_session
+            'user': {
+                'id': user['id'],
+                'email': user['email'],
+                'name': user['name'],
+                'picture': user['picture'],
+                'created_at': user['created_at'],
+                'last_login': user['last_login']
+            }
         })
     except Exception as e:
         logging.error(f"Error getting user info: {str(e)}")
@@ -327,9 +261,7 @@ def saved_jobs_page():
 def serve_profile_pic(filename):
     """Serve profile pictures from local storage"""
     try:
-        is_vercel = os.environ.get('VERCEL') == '1'
-        pics_dir = '/tmp/profile_pics' if is_vercel else 'data/profile_pics'
-        return send_from_directory(pics_dir, filename)
+        return send_from_directory('data/profile_pics', filename)
     except Exception as e:
         logging.error(f"Error serving profile picture: {str(e)}")
         # Return placeholder image
@@ -338,28 +270,29 @@ def serve_profile_pic(filename):
 # API: Get dashboard statistics
 @app.route('/api/stats', methods=['GET'])
 def get_stats():
-    """Get market statistics (cached for 10 minutes)"""
+    """Get market statistics"""
     try:
-        cache_key = 'api:stats'
-        with _cache_lock:
-            if cache_key in _response_cache:
-                return jsonify(_response_cache[cache_key])
-
-        # Use load_all_jobs which is itself cached and capped
-        jobs_df = load_all_jobs()
-
+        # Load ALL jobs (not just last 30 days)
+        from src.database import Job, SessionLocal
+        session = SessionLocal()
+        query = session.query(Job)
+        jobs = query.all()
+        data = [job.to_dict() for job in jobs]
+        jobs_df = pd.DataFrame(data)
+        session.close()
+        
         if jobs_df.empty:
             return jsonify({
                 'success': False,
                 'message': 'No job data available',
                 'data': {}
             }), 404
-
+        
         # Calculate statistics
         total_jobs = len(jobs_df)
         companies = jobs_df['company'].nunique()
         locations = jobs_df['location'].nunique()
-
+        
         # Average salary
         valid_salaries = jobs_df[
             (jobs_df['salary_min'] > 0) & 
@@ -369,20 +302,19 @@ def get_stats():
         if not valid_salaries.empty:
             avg_sal = (valid_salaries['salary_min'] + valid_salaries['salary_max']) / 2
             avg_salary = int(avg_sal.mean())
-
-        result = {
-            'success': True,
-            'data': {
-                'total_jobs': int(total_jobs),
-                'companies_hiring': int(companies),
-                'locations': int(locations),
-                'average_salary': avg_salary
-            }
+        
+        stats = {
+            'total_jobs': int(total_jobs),
+            'companies_hiring': int(companies),
+            'locations': int(locations),
+            'average_salary': avg_salary
         }
-        with _cache_lock:
-            _response_cache[cache_key] = result
-        return jsonify(result)
-
+        
+        return jsonify({
+            'success': True,
+            'data': stats
+        })
+    
     except Exception as e:
         logging.error(f"Error getting stats: {str(e)}")
         return jsonify({
@@ -393,45 +325,61 @@ def get_stats():
 # API: Get unique job roles from data
 @app.route('/api/roles', methods=['GET'])
 def get_unique_roles():
-    """Get unique job roles from the dataset (cached for 10 minutes)"""
+    """Get unique job roles from the dataset"""
     try:
-        cache_key = 'api:roles'
-        with _cache_lock:
-            if cache_key in _response_cache:
-                return jsonify(_response_cache[cache_key])
-
-        jobs_df = load_all_jobs()
-
+        # Load ALL jobs (not just last 30 days)
+        from src.database import Job, SessionLocal
+        session = SessionLocal()
+        query = session.query(Job)
+        jobs = query.all()
+        data = [job.to_dict() for job in jobs]
+        jobs_df = pd.DataFrame(data)
+        session.close()
+        
         if jobs_df.empty:
             return jsonify({
                 'success': False,
                 'message': 'No job data available',
                 'data': []
             }), 404
-
+        
         # Get all unique titles
         all_titles = jobs_df['title'].unique().tolist()
-
+        
         # Normalize and extract main role from titles
+        # This removes company names, experience levels, and location info
         normalized_roles = set()
-
+        
         for title in all_titles:
+            # Remove common patterns like company names, experience, location
+            title_lower = str(title).lower()
+            
+            # Skip if it has too many special characters or is too long
             if len(title) > 80 or title.count('(') > 2:
                 continue
+            
+            # Extract main role by taking first meaningful part
+            # Remove location, experience, company references
             parts = title.split('-')[0].split('|')[0].split('(')[0].strip()
+            
+            # Skip if it's too short or contains only numbers
             if len(parts) > 5 and not parts.isdigit():
                 normalized_roles.add(parts)
-
+        
+        # Sort and limit to top roles
         unique_roles = sorted(list(normalized_roles))[:100]
-
-        result = {'success': True, 'data': unique_roles}
-        with _cache_lock:
-            _response_cache[cache_key] = result
-        return jsonify(result)
-
+        
+        return jsonify({
+            'success': True,
+            'data': unique_roles
+        })
+    
     except Exception as e:
         logging.error(f"Error getting unique roles: {str(e)}")
-        return jsonify({'success': False, 'message': str(e)}), 500
+        return jsonify({
+            'success': False,
+            'message': str(e)
+        }), 500
 
 # API: Get all jobs with filtering
 @app.route('/api/jobs', methods=['GET'])
@@ -445,11 +393,18 @@ def get_jobs():
         company = request.args.get('company', None)
         days = request.args.get('days', None, type=int)  # None = load all jobs
         
-        # Load jobs - if days not specified, use capped load_all_jobs
+        # Load jobs - if days not specified, load ALL jobs
         if days:
             jobs_df = load_recent_jobs(days=days)
         else:
-            jobs_df = load_all_jobs()
+            # Load all jobs without date filtering
+            from src.database import Job, SessionLocal
+            session = SessionLocal()
+            query = session.query(Job).order_by(Job.posted_date.desc())
+            jobs = query.all()
+            data = [job.to_dict() for job in jobs]
+            jobs_df = pd.DataFrame(data)
+            session.close()
         
         if jobs_df.empty:
             return jsonify({
@@ -517,8 +472,16 @@ def get_job_recommendations():
             'preferred_locations': data.get('preferred_locations', [])
         }
         
-        # Load fresh jobs — tries PostgreSQL (with retry) then falls back to CSV
-        jobs_df = load_recent_jobs(days=30)
+        # Load fresh jobs from last 30 days for recommendations
+        from src.database import Job, SessionLocal
+        from datetime import timedelta
+        session = SessionLocal()
+        cutoff_date = datetime.utcnow() - timedelta(days=30)
+        query = session.query(Job).filter(Job.posted_date >= cutoff_date)
+        jobs = query.all()
+        data_jobs = [job.to_dict() for job in jobs]
+        jobs_df = pd.DataFrame(data_jobs)
+        session.close()
         
         if jobs_df.empty:
             return jsonify({
@@ -555,29 +518,15 @@ def get_job_recommendations():
             logging.info(f"Filtered to {len(jobs_df_filtered)} jobs in {user_location} (from {len(jobs_df)} total)")
             jobs_df = jobs_df_filtered
         
-        # ------------------------------------------------------------------
-        # ML model caching: train once per location, reuse for 30 minutes
-        # ------------------------------------------------------------------
-        # Build a stable cache key from the filtered job set
-        model_cache_key = f'model:{user_location.lower().strip()}'
-        import time as _time
-
-        recommendation_engine = None
-        with _model_cache_lock:
-            cached = _model_cache.get(model_cache_key)
-            if cached and (_time.time() - cached['trained_at']) < MODEL_CACHE_TTL:
-                recommendation_engine = cached['engine']
-                logging.info(f"ML model cache HIT for key '{model_cache_key}'")
-
-        if recommendation_engine is None:
-            logging.info(f"ML model cache MISS — training for key '{model_cache_key}'")
-            recommendation_engine = JobRecommendationEngine()
-            recommendation_engine.train(jobs_df)
-            with _model_cache_lock:
-                _model_cache[model_cache_key] = {
-                    'engine': recommendation_engine,
-                    'trained_at': _time.time()
-                }
+        # Initialize and train recommendation engine
+        recommendation_engine = JobRecommendationEngine()
+        recommendation_engine.train(jobs_df)
+        
+        # Save model for future use (optional caching)
+        try:
+            recommendation_engine.save_model('models/recommendation_model.pkl')
+        except Exception as save_error:
+            logging.warning(f"Could not save model cache: {save_error}")
         
         # Get recommendations with specified top_n
         recommendations = recommendation_engine.calculate_match(user_profile, top_n=top_n)
@@ -585,7 +534,6 @@ def get_job_recommendations():
         # Convert DataFrame to list of dicts for JSON serialization
         recommendations_list = []
         if not recommendations.empty:
-            recommendations = recommendations.fillna('')
             for idx, row in recommendations.iterrows():
                 # Parse skills strings to lists
                 matched_skills = [s.strip() for s in str(row.get('matched_skills', '')).split(',') if s.strip()]
@@ -629,14 +577,9 @@ def get_job_recommendations():
 # API: Get market analytics
 @app.route('/api/analytics', methods=['GET'])
 def get_analytics():
-    """Get market analytics and trends (cached 10 min)"""
+    """Get market analytics and trends"""
     try:
         days = request.args.get('days', 30, type=int)
-        cache_key = f'api:analytics:{days}'
-        with _cache_lock:
-            if cache_key in _response_cache:
-                return jsonify(_response_cache[cache_key])
-
         jobs_df = load_recent_jobs(days=days)
         
         if jobs_df.empty:
@@ -655,10 +598,10 @@ def get_analytics():
             }
         }
         
-        result = {'success': True, 'data': analytics}
-        with _cache_lock:
-            _response_cache[cache_key] = result
-        return jsonify(result)
+        return jsonify({
+            'success': True,
+            'data': analytics
+        })
     
     except Exception as e:
         logging.error(f"Error getting analytics: {str(e)}")
@@ -670,16 +613,12 @@ def get_analytics():
 # API: Get salary trends
 @app.route('/api/salary-trends', methods=['GET'])
 def get_salary_trends():
-    """Get salary trends by location or role (cached 10 min)"""
+    """Get salary trends by location or role"""
     try:
         days = request.args.get('days', None, type=int)
         group_by = request.args.get('group_by', 'location')
         location = request.args.get('location', '', type=str)
-        cache_key = f'api:salary-trends:{days}:{group_by}:{location}'
-        with _cache_lock:
-            if cache_key in _response_cache:
-                return jsonify(_response_cache[cache_key])
-
+        
         jobs_df = load_recent_jobs(days=days) if days else load_all_jobs()
         
         # Filter by location if provided
@@ -695,16 +634,14 @@ def get_salary_trends():
         if salary_trends.empty:
             return jsonify({'success': True, 'data': []})
         
+        # Convert to list of dicts
         trends_list = salary_trends.head(10).to_dict('records')
         for trend in trends_list:
             for key in trend:
                 if isinstance(trend[key], (int, float)):
                     trend[key] = float(trend[key])
         
-        result = {'success': True, 'data': trends_list}
-        with _cache_lock:
-            _response_cache[cache_key] = result
-        return jsonify(result)
+        return jsonify({'success': True, 'data': trends_list})
     
     except Exception as e:
         logging.error(f"Error getting salary trends: {str(e)}")
@@ -713,38 +650,33 @@ def get_salary_trends():
 # API: Get top skills
 @app.route('/api/top-skills', methods=['GET'])
 def get_skills():
-    """Get top in-demand skills (cached 10 min)"""
+    """Get top in-demand skills"""
     try:
         days = request.args.get('days', None, type=int)
         top_n = request.args.get('top_n', 15, type=int)
         location = request.args.get('location', '', type=str)
-        cache_key = f'api:top-skills:{days}:{top_n}:{location}'
-        with _cache_lock:
-            if cache_key in _response_cache:
-                return jsonify(_response_cache[cache_key])
-
+        
         jobs_df = load_recent_jobs(days=days) if days else load_all_jobs()
-
+        
+        # Filter by location if provided
         if location and location != 'All':
             from src.analytics import filter_jobs_by_location
             jobs_df = filter_jobs_by_location(jobs_df, location)
-
+        
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})
-
+        
         skills = get_top_skills(jobs_df, top_n=top_n)
+        
         if skills.empty:
             return jsonify({'success': True, 'data': []})
-
+        
         skills_list = skills.to_dict('records')
         for skill in skills_list:
             skill['count'] = int(skill['count'])
-
-        result = {'success': True, 'data': skills_list}
-        with _cache_lock:
-            _response_cache[cache_key] = result
-        return jsonify(result)
-
+        
+        return jsonify({'success': True, 'data': skills_list})
+    
     except Exception as e:
         logging.error(f"Error getting skills: {str(e)}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -752,38 +684,33 @@ def get_skills():
 # API: Get role distribution
 @app.route('/api/role-distribution', methods=['GET'])
 def get_roles():
-    """Get job role distribution (cached 10 min)"""
+    """Get job role distribution"""
     try:
         days = request.args.get('days', None, type=int)
         top_n = request.args.get('top_n', 10, type=int)
         location = request.args.get('location', '', type=str)
-        cache_key = f'api:role-distribution:{days}:{top_n}:{location}'
-        with _cache_lock:
-            if cache_key in _response_cache:
-                return jsonify(_response_cache[cache_key])
-
+        
         jobs_df = load_recent_jobs(days=days) if days else load_all_jobs()
-
+        
+        # Filter by location if provided
         if location and location != 'All':
             from src.analytics import filter_jobs_by_location
             jobs_df = filter_jobs_by_location(jobs_df, location)
-
+        
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})
-
+        
         roles = get_role_distribution(jobs_df, top_n=top_n)
+        
         if roles.empty:
             return jsonify({'success': True, 'data': []})
-
+        
         roles_list = roles.to_dict('records')
         for role in roles_list:
             role['count'] = int(role['count'])
-
-        result = {'success': True, 'data': roles_list}
-        with _cache_lock:
-            _response_cache[cache_key] = result
-        return jsonify(result)
-
+        
+        return jsonify({'success': True, 'data': roles_list})
+    
     except Exception as e:
         logging.error(f"Error getting roles: {str(e)}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -791,37 +718,32 @@ def get_roles():
 # API: Get experience distribution
 @app.route('/api/experience-distribution', methods=['GET'])
 def get_exp_dist():
-    """Get experience level distribution (cached 10 min)"""
+    """Get experience level distribution"""
     try:
         days = request.args.get('days', None, type=int)
         location = request.args.get('location', '', type=str)
-        cache_key = f'api:exp-dist:{days}:{location}'
-        with _cache_lock:
-            if cache_key in _response_cache:
-                return jsonify(_response_cache[cache_key])
-
+        
         jobs_df = load_recent_jobs(days=days) if days else load_all_jobs()
-
+        
+        # Filter by location if provided
         if location and location != 'All':
             from src.analytics import filter_jobs_by_location
             jobs_df = filter_jobs_by_location(jobs_df, location)
-
+        
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})
-
+        
         exp_dist = get_experience_distribution(jobs_df)
+        
         if exp_dist.empty:
             return jsonify({'success': True, 'data': []})
-
+        
         exp_list = exp_dist.to_dict('records')
         for exp in exp_list:
             exp['count'] = int(exp['count'])
-
-        result = {'success': True, 'data': exp_list}
-        with _cache_lock:
-            _response_cache[cache_key] = result
-        return jsonify(result)
-
+        
+        return jsonify({'success': True, 'data': exp_list})
+    
     except Exception as e:
         logging.error(f"Error getting experience distribution: {str(e)}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -829,39 +751,34 @@ def get_exp_dist():
 # API: Get location statistics
 @app.route('/api/location-stats', methods=['GET'])
 def get_location_stats():
-    """Get job statistics by location (cached 10 min)"""
+    """Get job statistics by location"""
     try:
         days = request.args.get('days', None, type=int)
         location = request.args.get('location', '', type=str)
-        cache_key = f'api:location-stats:{days}:{location}'
-        with _cache_lock:
-            if cache_key in _response_cache:
-                return jsonify(_response_cache[cache_key])
-
+        
         jobs_df = load_recent_jobs(days=days) if days else load_all_jobs()
-
+        
+        # Filter by location if provided
         if location and location != 'All':
             from src.analytics import filter_jobs_by_location
             jobs_df = filter_jobs_by_location(jobs_df, location)
-
+        
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})
-
+        
         loc_stats = calculate_location_stats(jobs_df)
+        
         if loc_stats.empty:
             return jsonify({'success': True, 'data': []})
-
+        
         loc_list = loc_stats.head(15).to_dict('records')
         for loc in loc_list:
             for key in loc:
                 if isinstance(loc[key], (int, float)):
                     loc[key] = float(loc[key])
-
-        result = {'success': True, 'data': loc_list}
-        with _cache_lock:
-            _response_cache[cache_key] = result
-        return jsonify(result)
-
+        
+        return jsonify({'success': True, 'data': loc_list})
+    
     except Exception as e:
         logging.error(f"Error getting location stats: {str(e)}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -869,41 +786,35 @@ def get_location_stats():
 # API: Get posting trends
 @app.route('/api/posting-trends', methods=['GET'])
 def get_trends():
-    """Get job posting trends over time (cached 10 min)"""
+    """Get job posting trends over time"""
     try:
         days = request.args.get('days', None, type=int)
         location = request.args.get('location', '', type=str)
-        cache_key = f'api:posting-trends:{days}:{location}'
-        with _cache_lock:
-            if cache_key in _response_cache:
-                return jsonify(_response_cache[cache_key])
-
+        
         jobs_df = load_recent_jobs(days=days) if days else load_all_jobs()
-
+        
+        # Filter by location if provided
         if location and location != 'All':
             from src.analytics import filter_jobs_by_location
             jobs_df = filter_jobs_by_location(jobs_df, location)
-
+        
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data', 'data': []})
-
+        
         trends = get_posting_trends(jobs_df, days=days)
-
+        
         if trends.empty:
             return jsonify({'success': True, 'data': []})
-
+        
         trends_list = []
         for idx, row in trends.iterrows():
             trends_list.append({
                 'date': row['date'].strftime('%Y-%m-%d'),
                 'count': int(row['count'])
             })
-
-        result = {'success': True, 'data': trends_list}
-        with _cache_lock:
-            _response_cache[cache_key] = result
-        return jsonify(result)
-
+        
+        return jsonify({'success': True, 'data': trends_list})
+    
     except Exception as e:
         logging.error(f"Error getting posting trends: {str(e)}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -911,30 +822,35 @@ def get_trends():
 # API: Get summary statistics
 @app.route('/api/summary-stats', methods=['GET'])
 def get_summary():
-    """Get overall market summary statistics (cached 10 min)"""
+    """Get overall market summary statistics"""
     try:
         days = request.args.get('days', None, type=int)
         location = request.args.get('location', '', type=str)
-        cache_key = f'api:summary-stats:{days}:{location}'
-        with _cache_lock:
-            if cache_key in _response_cache:
-                return jsonify(_response_cache[cache_key])
-
-        jobs_df = load_recent_jobs(days=days) if days else load_all_jobs()
-
+        
+        # Load ALL jobs (not just 30 days) unless days parameter specified
+        if days:
+            jobs_df = load_recent_jobs(days=days)
+        else:
+            from src.database import Job, SessionLocal
+            session = SessionLocal()
+            query = session.query(Job)
+            jobs = query.all()
+            data_jobs = [job.to_dict() for job in jobs]
+            jobs_df = pd.DataFrame(data_jobs)
+            session.close()
+        
+        # Filter by location if provided
         if location and location != 'All':
             from src.analytics import filter_jobs_by_location
             jobs_df = filter_jobs_by_location(jobs_df, location)
-
+        
         if jobs_df.empty:
             return jsonify({'success': False, 'message': 'No data'})
-
+        
         stats = calculate_summary_stats(jobs_df)
-        result = {'success': True, 'data': stats}
-        with _cache_lock:
-            _response_cache[cache_key] = result
-        return jsonify(result)
-
+        
+        return jsonify({'success': True, 'data': stats})
+    
     except Exception as e:
         logging.error(f"Error getting summary stats: {str(e)}")
         return jsonify({'success': False, 'message': str(e)}), 500
@@ -1034,13 +950,6 @@ def background_job_fetch(app_id, app_key):
             job_fetch_status['message'] = f'✅ Success! {len(result):,} jobs saved (90-day analytics ready). AI trained on {fresh_count:,} fresh jobs (≤30 days)!'
             job_fetch_status['is_running'] = False
             job_fetch_status['last_completed'] = datetime.now().isoformat()
-
-            # Invalidate all caches so next request picks up fresh data
-            with _cache_lock:
-                _response_cache.clear()
-            with _model_cache_lock:
-                _model_cache.clear()
-            logging.info("Response and model caches cleared after successful job fetch")
         else:
             job_fetch_status['progress'] = 0
             job_fetch_status['message'] = '❌ No jobs fetched. API may be rate-limited or unavailable'
@@ -1149,6 +1058,132 @@ def get_last_updated():
             'message': str(e)
         }), 500
 
+# ========================
+# CHATBOT ENDPOINT
+# ========================
+
+# Initialize chatbot engine
+chatbot = ChatbotEngine()
+
+# Check if OpenRouter API key is configured
+openrouter_api_key = os.getenv('OPENROUTER_API_KEY')
+if openrouter_api_key:
+    logging.info("OpenRouter API key found - Gemini 2.5 Flash enabled")
+    OPENROUTER_AVAILABLE = True
+else:
+    logging.warning("OPENROUTER_API_KEY not found in .env - using fallback responses")
+    OPENROUTER_AVAILABLE = False
+
+@app.route('/api/chat', methods=['POST'])
+def chat():
+    """
+    Chatbot endpoint
+    Handles conversation with Google Gemini API integration
+    
+    Request JSON:
+    {
+        "message": "user message",
+        "user_profile": {
+            "role": "role",
+            "experience": "experience",
+            "location": "location",
+            "skills": ["skill1", "skill2"],
+            "total_matched_jobs": 24
+        },
+        "conversation_history": [
+            {"role": "user", "content": "message"},
+            {"role": "bot", "content": "response"}
+        ]
+    }
+    """
+    try:
+        data = request.get_json()
+        user_message = data.get('message', '').strip() or data.get('user_message', '').strip()
+        user_profile = data.get('user_profile', {})
+        conversation_history = data.get('conversation_history', [])
+        
+        # Get user's name from session and add to profile
+        user_name = session.get('user_name', 'there')
+        user_profile['name'] = user_name  # Add name to profile for fallback responses
+        
+        if not user_message:
+            return jsonify({
+                'success': False,
+                'message': 'Message cannot be empty'
+            }), 400
+        
+        logging.info(f"Chat request from {user_name}: {user_message[:100]}")
+        logging.debug(f"User profile: {user_profile}")
+        
+        # Ensure user_profile has required fields
+        if not user_profile:
+            user_profile = {}
+        if 'role' not in user_profile or not user_profile['role']:
+            user_profile['role'] = 'job seeker'
+        if 'experience' not in user_profile or not user_profile['experience']:
+            user_profile['experience'] = 'mid-level'
+        if 'location' not in user_profile or not user_profile['location']:
+            user_profile['location'] = 'India'
+        
+        # Get current job recommendations for context (skip if error)
+        recommendations = []
+        try:
+            # Load sample jobs for chatbot context (limit to avoid slowdown)
+            from src.database import Job, SessionLocal
+            db_session = SessionLocal()
+            jobs_query = db_session.query(Job).limit(100)
+            jobs_list = jobs_query.all()
+            db_session.close()
+            if jobs_list:
+                recommendations = [job.to_dict() for job in jobs_list[:5]]
+        except Exception as rec_error:
+            logging.warning(f"Could not load recommendations: {str(rec_error)}")
+            # Continue without recommendations
+        
+        # Generate response using Google Gemini API (with OpenRouter fallback)
+        try:
+            response = chatbot.generate_response(
+                user_message=user_message,
+                user_profile=user_profile,
+                conversation_history=conversation_history,
+                recommendations=recommendations,
+                use_gemini=GEMINI_AVAILABLE,
+                user_name=user_name
+            )
+            logging.debug(f"Chatbot response: success={response.get('success')}, intent={response.get('intent')}")
+        except Exception as gen_error:
+            logging.error(f"Chatbot generation failed: {str(gen_error)}")
+            import traceback
+            logging.error(f"Traceback: {traceback.format_exc()}")
+            response = {
+                'success': False,
+                'message': f'Error generating response: {str(gen_error)}'
+            }
+        
+        if response['success']:
+            logging.info(f"Chat response generated - Intent: {response['intent']}")
+            return jsonify({
+                'success': True,
+                'message': response['message'],
+                'intent': response['intent'],
+                'category': response['category'],
+                'confidence': response['confidence']
+            })
+        else:
+            logging.error(f"Chat error: {response.get('error')}")
+            return jsonify({
+                'success': False,
+                'message': response['message']
+            }), 500
+    
+    except Exception as e:
+        import traceback
+        logging.error(f"Chat endpoint error: {str(e)}")
+        logging.error(f"Traceback: {traceback.format_exc()}")
+        return jsonify({
+            'success': False,
+            'message': f'Error processing chat: {str(e)}'
+        }), 500
 
 # ========================
 # ERROR HANDLERS

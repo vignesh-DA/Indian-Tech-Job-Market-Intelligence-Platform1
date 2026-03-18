@@ -419,9 +419,13 @@ def fetch_and_save_jobs(app_id=None, app_key=None, progress_callback=None):
         # Initialize API
         api = AdzunaAPI(app_id, app_key)
         
-        # Define roles and locations to search
-        # Top 15 highest demand roles in Indian tech market
-        roles = [
+        # Define roles and locations to search.
+        # Defaults target broad Indian tech market coverage.
+        # Can be overridden in CI/CD using:
+        # SCRAPE_ROLES=role1,role2
+        # SCRAPE_LOCATIONS=city1,city2
+        # SCRAPE_MAX_RESULTS_PER_ROLE=40
+        default_roles = [
             'software engineer',
             'backend developer',
             'frontend developer',
@@ -438,9 +442,8 @@ def fetch_and_save_jobs(app_id=None, app_key=None, progress_callback=None):
             'solutions architect',
             'technical lead'
         ]
-        
-        # Top 10 locations with highest job postings
-        locations = [
+
+        default_locations = [
             'Bangalore',
             'Mumbai',
             'Delhi',
@@ -452,11 +455,28 @@ def fetch_and_save_jobs(app_id=None, app_key=None, progress_callback=None):
             'Ahmedabad',
             'Kochi'
         ]
+
+        roles_env = os.getenv('SCRAPE_ROLES', '').strip()
+        locations_env = os.getenv('SCRAPE_LOCATIONS', '').strip()
+
+        roles = [r.strip() for r in roles_env.split(',') if r.strip()] if roles_env else default_roles
+        locations = [l.strip() for l in locations_env.split(',') if l.strip()] if locations_env else default_locations
+
+        max_results_per_role = int(os.getenv('SCRAPE_MAX_RESULTS_PER_ROLE', '100'))
+
+        logging.info(
+            f"Scrape configuration => roles={len(roles)}, locations={len(locations)}, "
+            f"max_results_per_role={max_results_per_role}, "
+            f"upper_bound={len(roles) * len(locations) * max_results_per_role}"
+        )
         
         # Fetch jobs with concurrent threading
-        # 15 roles × 10 locations × 100 jobs = ~15,000 total jobs
-        # With 5 parallel workers: ~3-5 minutes completion
-        jobs_df = api.fetch_multiple_roles(roles, locations, max_results_per_role=100, progress_callback=progress_callback)
+        jobs_df = api.fetch_multiple_roles(
+            roles,
+            locations,
+            max_results_per_role=max_results_per_role,
+            progress_callback=progress_callback
+        )
         
         if jobs_df.empty:
             logging.warning("No jobs fetched from API")

@@ -130,6 +130,49 @@ DEBUG               # True/False
 - `POST /api/fetch-jobs` - Refresh job data
 - `GET /api/stats` - Market statistics
 
+## ⚙️ GitHub Actions CI/CD (Neon Scraping)
+
+This repo includes a workflow at `.github/workflows/scrape-jobs.yml` that runs scraping:
+- On schedule: every 12 hours
+- On demand: manual trigger from Actions tab
+
+### Required GitHub Secrets
+
+Add these in GitHub: `Settings -> Secrets and variables -> Actions`:
+
+```
+DATABASE_URL
+ADZUNA_APP_ID
+ADZUNA_APP_KEY
+FLASK_SECRET_KEY
+```
+
+### Manual Trigger Inputs
+
+You can override scrape scope while dispatching manually:
+
+```
+scrape_roles              # comma-separated roles (optional)
+scrape_locations          # comma-separated locations (optional)
+max_results_per_role      # default: 40 for faster/stable CI runs
+```
+
+### Runner Script
+
+The workflow executes `scripts/run_scrape_job.py`, which:
+1. Initializes DB tables
+2. Runs Adzuna scraping
+3. Saves jobs to Neon (PostgreSQL upsert)
+4. Fails the workflow if scrape returns zero rows
+
+Environment overrides supported by scraper:
+
+```
+SCRAPE_ROLES
+SCRAPE_LOCATIONS
+SCRAPE_MAX_RESULTS_PER_ROLE
+```
+
 ## 🐛 Troubleshooting
 
 **No jobs showing?**
