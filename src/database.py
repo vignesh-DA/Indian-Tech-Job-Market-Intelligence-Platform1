@@ -134,6 +134,11 @@ def _with_retry(fn, max_attempts=3, base_delay=2):
         except Exception as e:
             last_exc = e
             err_str = str(e).lower()
+
+            # Logic/data errors should not be retried.
+            if 'cannot affect row a second time' in err_str or 'cardinalityviolation' in err_str:
+                raise
+
             # Only retry on connection/SSL-level errors
             transient = any(kw in err_str for kw in [
                 'ssl', 'connection', 'timeout', 'broken pipe',
@@ -196,6 +201,11 @@ def save_jobs_to_db(jobs_df):
     from datetime import timedelta
     jobs_to_insert = []
     for _, row in jobs_df.iterrows():
+        job_id = str(row.get('job_id', '')).strip()
+        if not job_id:
+            # Skip malformed rows without stable primary key.
+            continue
+
         posted_date = row.get('posted_date')
         if posted_date and pd.notna(posted_date):
             try:
@@ -206,7 +216,7 @@ def save_jobs_to_db(jobs_df):
             posted_date = datetime.utcnow()
 
         jobs_to_insert.append({
-            'job_id':      str(row.get('job_id', '')),
+            'job_id':      job_id,
             'title':       row.get('title', ''),
             'company':     row.get('company', ''),
             'location':    row.get('location', ''),
@@ -221,6 +231,24 @@ def save_jobs_to_db(jobs_df):
             'posted_date': posted_date,
             'created_at':  datetime.utcnow(),
         })
+
+    # PostgreSQL ON CONFLICT cannot handle duplicate conflict keys in one VALUES payload.
+    # Keep the last occurrence for each job_id within this save call.
+    original_count = len(jobs_to_insert)
+    deduped_jobs = {}
+    for job in jobs_to_insert:
+        deduped_jobs[job['job_id']] = job
+    jobs_to_insert = list(deduped_jobs.values())
+
+    if original_count != len(jobs_to_insert):
+        logging.warning(
+            f"Deduplicated {original_count - len(jobs_to_insert)} duplicate rows by job_id "
+            f"before DB upsert"
+        )
+
+    if not jobs_to_insert:
+        logging.warning("No valid jobs to save after filtering/deduplication")
+        return 0
 
     def _do_save():
         session = SessionLocal()
