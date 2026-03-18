@@ -1,214 +1,259 @@
-# 🇮🇳 Tech Job Intelligence Platform
+# Indian Tech Job Market Intelligence Platform
 
-An **AI-powered job recommendation system** that matches you with the best tech jobs in India using machine learning.
+<div align="center">
 
-## ✨ What It Does
+### Built by [vignesh-DA](https://github.com/vignesh-DA)
 
-- **🎯 Smart Job Matching** - AI analyzes your skills and finds jobs perfect for you
-- **📊 Live Market Insights** - See salary trends, top skills, and hot companies
-- **💾 Save & Track** - Bookmark jobs and track your applications
-- **🔄 Real-Time Data** - Always updated with the latest job postings
+[![GitHub](https://img.shields.io/badge/GitHub-vignesh--DA-181717?logo=github)](https://github.com/vignesh-DA)
+![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![Flask](https://img.shields.io/badge/Flask-3.0%2B-000000?logo=flask&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-## 🚀 Quick Start
+AI-powered platform for job discovery, recommendation, and market intelligence focused on the Indian tech ecosystem.
 
-### 1. Install
+[Features](#key-features) | [Quick Start](#local-development-setup) | [Architecture](#architecture) | [CI/CD](#cicd-scheduled-job-refresh) | [API](#api-overview)
+
+</div>
+
+## Overview
+
+This project combines live job ingestion, recommendation scoring, market analytics, and conversational career guidance in a single web application.
+
+Core capabilities:
+
+- Personalized job recommendations by skills, experience, and location
+- Real-time market insights (salary trends, top skills, top companies, location distribution)
+- Google OAuth login and session-based access control
+- Chat assistant for salary, skills, role, and company guidance
+- Automated job refresh pipeline using GitHub Actions and Neon PostgreSQL
+
+## Architecture
+
+The application is organized into four layers:
+
+1. Web/API layer: server.py
+2. Scraping layer: src/scrapers.py
+3. Storage layer: src/database.py with fallback loader in src/data_loader.py
+4. Intelligence layer: src/recommendation_engine.py and src/chatbot_engine.py
+
+High-level flow:
+
+1. Jobs are fetched from Adzuna.
+2. Data is normalized and batch-upserted into PostgreSQL (Neon).
+3. APIs read from PostgreSQL (with CSV fallback where applicable).
+4. Frontend consumes APIs for recommendations and dashboards.
+5. Chat endpoint uses profile context plus market data for responses.
+
+## Technology Stack
+
+- Backend: Flask, SQLAlchemy
+- Frontend: HTML, CSS, Vanilla JavaScript
+- Data and ML: pandas, numpy, scikit-learn
+- Database: Neon PostgreSQL
+- Authentication: Google OAuth 2.0
+- Scheduling: GitHub Actions (cron)
+
+## Key Features
+
+### Personalized Recommendations
+
+- Role, skills, experience, and location-aware matching
+- Match score breakdown
+- Missing skills and learning suggestions
+
+### Market Intelligence Dashboard
+
+- Salary trends
+- Top skills and companies
+- Role and experience distribution
+- Location-level market summaries
+
+### Authentication and User Session
+
+- Google OAuth login flow
+- Secure cookie-based session handling for serverless deployment
+
+### Chat Assistant
+
+- Intent-driven responses for salary, skills, role planning, and market guidance
+- Profile-aware suggestions
+
+## Project Structure
+
+```text
+.
+|-- server.py
+|-- src/
+|   |-- analytics.py
+|   |-- chatbot_engine.py
+|   |-- data_loader.py
+|   |-- database.py
+|   |-- oauth_handler.py
+|   |-- recommendation_engine.py
+|   |-- scrapers.py
+|   `-- user_db.py
+|-- frontend/
+|   |-- index.html
+|   |-- market-dashboard.html
+|   |-- recommendations.html
+|   |-- saved-jobs.html
+|   `-- assets/
+|-- scripts/
+|   `-- run_scrape_job.py
+`-- .github/workflows/
+	`-- scrape-jobs.yml
+```
+
+## Local Development Setup
+
+### Prerequisites
+
+- Python 3.11+
+- pip
+
+### Installation
+
 ```bash
 git clone https://github.com/vignesh-DA/Indian-Tech-Job-Market-Intelligence-Platform1.git
 cd gravito
 pip install -r requirements.txt
 ```
 
-### 2. Setup API Keys
-Get free API credentials from [Adzuna](https://developer.adzuna.com/)
+### Environment Variables
 
-Create a `.env` file:
-```
-ADZUNA_APP_ID=your_app_id
-ADZUNA_APP_KEY=your_app_key
+Create a .env file in the repository root.
+
+Minimum required for local run:
+
+```env
+ADZUNA_APP_ID=your_adzuna_app_id
+ADZUNA_APP_KEY=your_adzuna_app_key
+DATABASE_URL=your_database_url
+FLASK_SECRET_KEY=your_secret_key
+
+GOOGLE_OAUTH_CLIENT_ID=your_google_client_id
+GOOGLE_OAUTH_CLIENT_SECRET=your_google_client_secret
+GOOGLE_OAUTH_REDIRECT_URI=http://localhost:5000/api/auth/callback
 ```
 
-### 3. Run the Server
+Optional:
+
+```env
+OPENROUTER_API_KEY=your_key
+```
+
+### Run the App
+
 ```bash
 python server.py
 ```
 
-Visit: `http://localhost:5000`
+Open http://localhost:5000
 
-## 📁 Project Structure
+## Deployment Model
 
-```
-gravito/
-├── server.py                   # Flask API backend
-├── frontend/                   # HTML/CSS/JS frontend
-│   ├── recommendations.html   # Job recommendations page
-│   ├── dashboard.html         # Market insights
-│   └── assets/
-│       ├── css/               # Styling
-│       └── js/                # Frontend logic
-├── src/                       # Core modules
-│   ├── recommendation_engine.py  # ML matching
-│   ├── scrapers.py              # Job fetching
-│   └── data_loader.py           # Data management
-├── data/                      # CSV job data
-└── models/                    # Saved ML models
-```
+### Production Topology
 
-## 🛠️ Tech Stack
+- Vercel: frontend + read APIs + auth endpoints
+- Neon PostgreSQL: primary persistent data store
+- GitHub Actions: scheduled scraping and database refresh
 
-- **Backend**: Flask (Python)
-- **Frontend**: HTML, CSS, JavaScript (Vanilla)
-- **AI/ML**: scikit-learn (TF-IDF + Cosine Similarity)
-- **Data**: pandas, numpy
-- **API**: Adzuna Jobs API
+Recommended pattern:
 
-## 🤖 How It Works
+- Do not run long scraping jobs on Vercel serverless functions.
+- Run scraping via GitHub Actions and write directly to Neon.
 
-1. **Data Collection** - Fetches latest job postings from Adzuna
-2. **ML Training** - Analyzes job skills, experience, location
-3. **Matching** - Compares your profile with jobs
-4. **Scoring** - Rates matches (Skills: 70%, Exp: 20%, Location: 10%)
-5. **Results** - Shows best-fit jobs with skill gaps
+## CI/CD: Scheduled Job Refresh
 
-## 📱 Features
+Workflow file:
 
-### Job Recommendations Page
-- Enter your role, experience, location, and skills
-- Get 10 personalized job matches
-- See which skills you have ✅ and what to learn 📚
-- View match score and fit category
-- Save jobs & apply directly
+- .github/workflows/scrape-jobs.yml
 
-### Market Dashboard
-- Salary trends by location & role
-- Top in-demand skills
-- Active hiring companies
-- Job market statistics
+Typical behavior:
 
-### Saved Jobs
-- Bookmark your favorite jobs
-- Track applications
-- Export data to CSV
+- Triggered by cron (daily schedule recommended)
+- Optionally supports manual dispatch
+- Executes scripts/run_scrape_job.py
 
-## 🔄 Data Refresh Workflow
+Required GitHub repository secrets:
 
-Click **"Refresh Job Data"** to:
-1. Delete old job data
-2. Fetch fresh postings from Adzuna API
-3. Train new ML model
-4. Ready for new recommendations
+- DATABASE_URL
+- ADZUNA_APP_ID
+- ADZUNA_APP_KEY
+- FLASK_SECRET_KEY
 
-## 📊 Recommendation Algorithm
+Optional scrape controls:
 
-```
-Match Score = (Skills × 0.7) + (Experience × 0.2) + (Location × 0.1)
-```
+- SCRAPE_ROLES
+- SCRAPE_LOCATIONS
+- SCRAPE_MAX_RESULTS_PER_ROLE
 
-**Fit Categories:**
-- 🟢 **Best Fit** (70%+) - Apply now!
-- 🟡 **Average Fit** (40-69%) - Could work with some learning
-- 🔴 **Low Fit** (<40%) - Not ideal match
+## API Overview
 
-## ⚙️ Configuration
+Authentication:
 
-### Environment Variables
-```
-ADZUNA_APP_ID        # Your Adzuna app ID
-ADZUNA_APP_KEY       # Your Adzuna app key
-FLASK_ENV           # development/production
-DEBUG               # True/False
-```
+- GET /api/auth/login
+- GET /api/auth/callback
+- POST /api/auth/logout
+- GET /api/auth/user
 
-### Ports
-- Frontend: `http://localhost:5000`
-- API: `http://localhost:5000/api/`
+Jobs and recommendations:
 
-## 🚀 API Endpoints
+- GET /api/jobs
+- GET /api/roles
+- POST /api/recommendations
 
-- `GET /api/roles` - Available job roles
-- `GET /api/jobs` - List all jobs
-- `POST /api/recommendations` - Get job matches
-- `POST /api/fetch-jobs` - Refresh job data
-- `GET /api/stats` - Market statistics
+Market analytics:
 
-## ⚙️ GitHub Actions CI/CD (Neon Scraping)
+- GET /api/stats
+- GET /api/analytics
+- GET /api/salary-trends
+- GET /api/top-skills
+- GET /api/role-distribution
+- GET /api/experience-distribution
+- GET /api/location-stats
+- GET /api/posting-trends
+- GET /api/summary-stats
 
-This repo includes a workflow at `.github/workflows/scrape-jobs.yml` that runs scraping:
-- On schedule: every 12 hours
-- On demand: manual trigger from Actions tab
+Operations:
 
-### Required GitHub Secrets
+- POST /api/fetch-jobs
+- GET /api/fetch-jobs-status
+- GET /api/last-updated
+- GET /health
 
-Add these in GitHub: `Settings -> Secrets and variables -> Actions`:
+## Reliability Notes
 
-```
-DATABASE_URL
-ADZUNA_APP_ID
-ADZUNA_APP_KEY
-FLASK_SECRET_KEY
-```
+- PostgreSQL writes use upsert semantics on job_id to avoid duplicates.
+- Deduplication is applied before bulk upsert to prevent ON CONFLICT cardinality errors.
+- Session handling is cookie-based and hardened for HTTPS deployments.
+- CSV fallback remains available if DB reads fail.
 
-### Manual Trigger Inputs
+## Troubleshooting
 
-You can override scrape scope while dispatching manually:
+### Login redirects back to /login
 
-```
-scrape_roles              # comma-separated roles (optional)
-scrape_locations          # comma-separated locations (optional)
-max_results_per_role      # default: 40 for faster/stable CI runs
-```
+- Ensure OAuth redirect URI matches your deployment domain.
+- Clear browser cookies for the domain after auth/session changes.
+- Confirm /api/auth/user returns authenticated true after login.
 
-### Runner Script
+### Vercel import errors
 
-The workflow executes `scripts/run_scrape_job.py`, which:
-1. Initializes DB tables
-2. Runs Adzuna scraping
-3. Saves jobs to Neon (PostgreSQL upsert)
-4. Fails the workflow if scrape returns zero rows
+- Verify required files exist in the deployed commit.
+- Redeploy without cache when adding new source modules.
 
-Environment overrides supported by scraper:
+### Scrape jobs stop early
 
-```
-SCRAPE_ROLES
-SCRAPE_LOCATIONS
-SCRAPE_MAX_RESULTS_PER_ROLE
-```
+- Run scraping from GitHub Actions, not Vercel.
+- Check workflow logs for Adzuna 429 responses and batch save status.
 
-## 🐛 Troubleshooting
+## Roadmap
 
-**No jobs showing?**
-- Click "Refresh Job Data" to fetch latest jobs
-- Check API credentials in `.env`
+- Multi-source aggregation beyond Adzuna
+- Enhanced role transition intelligence
+- Resume parsing and profile enrichment
+- Alerting and subscription workflows
 
-**Server won't start?**
-- Ensure Python 3.7+ installed
-- Run `pip install -r requirements.txt`
-- Check port 5000 is not in use
+## License
 
-**API errors?**
-- Verify Adzuna credentials
-- Check internet connection
-- Review API rate limits
-
-## 📞 Support
-
-- 📧 GitHub Issues
-- 📖 Check troubleshooting section
-- 🔗 [Adzuna API Docs](https://developer.adzuna.com/)
-
-## 🎯 Future Features
-
-- 📧 Email alerts for matching jobs
-- 📄 Resume parser (auto-extract skills)
-- 💼 Interview prep resources
-- 📈 Career path recommendations
-- 🏢 Company reviews & ratings
-
-## 📄 License
-
-MIT License - Feel free to use and modify
-
----
-
-**Built with ❤️ using Flask, Python & ML**
-
-v1.0 | January 2026
+MIT
