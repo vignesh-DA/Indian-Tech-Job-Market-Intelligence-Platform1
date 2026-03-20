@@ -413,9 +413,12 @@ async function checkAuth() {
                 window.location.href = '/login';
             }
         }
+
+        return data;
     } catch (error) {
         console.error('Auth check failed:', error);
         // Don't redirect on auth check failure (could be offline)
+        return null;
     }
 }
 

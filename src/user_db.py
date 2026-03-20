@@ -35,9 +35,15 @@ class UserDatabase:
                     picture TEXT,
                     google_id TEXT UNIQUE,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    last_login TIMESTAMP
+                    last_login TIMESTAMP,
+                    certificate TEXT
                 )
             ''')
+            # Add certificate column to existing tables that predate this migration
+            try:
+                conn.execute('ALTER TABLE users ADD COLUMN certificate TEXT')
+            except sqlite3.OperationalError:
+                pass  # Column already exists
             conn.commit()
     
     def get_or_create_user(self, email: str, name: str = None, picture: str = None, 
@@ -103,7 +109,7 @@ class UserDatabase:
             updates = []
             values = []
             for key, value in kwargs.items():
-                if key in ['name', 'picture']:
+                if key in ['name', 'picture', 'certificate']:
                     updates.append(f'{key} = ?')
                     values.append(value)
             

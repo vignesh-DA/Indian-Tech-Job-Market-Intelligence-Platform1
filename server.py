@@ -14,6 +14,8 @@ os.environ['OMP_NUM_THREADS'] = '1'
 from flask import Flask, jsonify, request, render_template, send_from_directory, redirect, session
 from flask_cors import CORS
 from dotenv import load_dotenv
+from werkzeug.utils import secure_filename
+import hashlib
 import pandas as pd
 from datetime import datetime
 import json
@@ -87,6 +89,16 @@ app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 
 # Enable CORS
 CORS(app)
+
+# Certificate upload configuration
+ALLOWED_CERTIFICATE_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+MAX_CERTIFICATE_SIZE = 5 * 1024 * 1024  # 5 MB
+is_vercel = os.environ.get('VERCEL') == '1'
+CERTIFICATES_DIR = '/tmp/certificates' if is_vercel else 'data/certificates'
+try:
+    os.makedirs(CERTIFICATES_DIR, exist_ok=True)
+except OSError:
+    pass
 
 # ========================
 # AUTHENTICATION MIDDLEWARE
@@ -170,6 +182,7 @@ def oauth_callback():
         session['user_email'] = user['email']
         session['user_name'] = user['name']
         session['user_picture'] = user['picture']
+        session['user_certificate'] = user.get('certificate')
         session['user_created_at'] = user.get('created_at') if isinstance(user, dict) else None
         session['user_last_login'] = user.get('last_login') if isinstance(user, dict) else None
         session['is_authenticated'] = True
@@ -210,6 +223,7 @@ def get_current_user():
             'email': session.get('user_email'),
             'name': session.get('user_name'),
             'picture': session.get('user_picture'),
+            'certificate': session.get('user_certificate'),
             'created_at': session.get('user_created_at'),
             'last_login': session.get('user_last_login')
         }
@@ -299,6 +313,74 @@ def serve_profile_pic(filename):
         logging.error(f"Error serving profile picture: {str(e)}")
         # Return placeholder image
         return '', 404
+
+@app.route('/certificates/<filename>')
+def serve_certificate(filename):
+    """Serve bootcamp certificate images from local storage"""
+    try:
+        safe_filename = secure_filename(filename)
+        return send_from_directory(CERTIFICATES_DIR, safe_filename)
+    except Exception as e:
+        logging.error(f"Error serving certificate: {str(e)}")
+        return '', 404
+
+@app.route('/api/upload-certificate', methods=['POST'])
+def upload_certificate():
+    """Upload a bootcamp certificate image for the authenticated user"""
+    if not is_session_authenticated():
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+
+    try:
+        if 'certificate' not in request.files:
+            return jsonify({'success': False, 'error': 'No file provided'}), 400
+
+        file = request.files['certificate']
+
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'No file selected'}), 400
+
+        # Validate extension
+        ext = file.filename.rsplit('.', 1)[-1].lower() if '.' in file.filename else ''
+        if ext not in ALLOWED_CERTIFICATE_EXTENSIONS:
+            return jsonify({
+                'success': False,
+                'error': 'Invalid file type. Allowed types: png, jpg, jpeg, gif, webp'
+            }), 400
+
+        # Read file content and validate size
+        file_content = file.read()
+        if len(file_content) > MAX_CERTIFICATE_SIZE:
+            return jsonify({'success': False, 'error': 'File too large. Maximum size is 5 MB'}), 400
+
+        # Build a unique filename from user email hash
+        user_email = session.get('user_email', 'unknown')
+        email_hash = hashlib.sha256(user_email.encode()).hexdigest()
+        safe_ext = secure_filename(f'cert.{ext}').rsplit('.', 1)[-1]
+        filename = f"{email_hash}_certificate.{safe_ext}"
+        filepath = os.path.join(CERTIFICATES_DIR, filename)
+
+        # Save file
+        with open(filepath, 'wb') as f:
+            f.write(file_content)
+
+        certificate_path = f"/certificates/{filename}"
+
+        # Persist to database
+        try:
+            from src.user_db import user_db
+            user_db.update_user(session.get('user_id'), certificate=certificate_path)
+        except Exception as db_err:
+            logging.warning(f"Could not persist certificate to DB: {db_err}")
+
+        # Update session
+        session['user_certificate'] = certificate_path
+
+        logging.info(f"Certificate uploaded for user {user_email}: {certificate_path}")
+        return jsonify({'success': True, 'certificate': certificate_path})
+
+    except Exception as e:
+        logging.error(f"Certificate upload error: {str(e)}")
+        return jsonify({'success': False, 'error': 'Upload failed'}), 500
 
 # API: Get dashboard statistics
 @app.route('/api/stats', methods=['GET'])

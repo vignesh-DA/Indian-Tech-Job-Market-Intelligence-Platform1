@@ -153,6 +153,41 @@
                             </div>
                         </form>
 
+                        <!-- Bootcamp Certificate Upload -->
+                        <div style="margin-top: var(--spacing-xl); padding-top: var(--spacing-lg); border-top: 1px solid var(--border-color);">
+                            <h4 style="margin-bottom: var(--spacing-md); display: flex; align-items: center; gap: 6px;">
+                                <i class="fas fa-certificate" style="color: var(--primary-color);"></i>
+                                Bootcamp Certificate
+                            </h4>
+                            <p style="font-size: 12px; color: var(--text-secondary); margin-bottom: var(--spacing-md);">
+                                Upload your bootcamp certificate image to showcase your credentials.
+                            </p>
+
+                            <!-- Certificate Preview -->
+                            <div id="certificatePreview" style="display: none; margin-bottom: var(--spacing-md); text-align: center;">
+                                <img id="certificateImg" src="" alt="Bootcamp Certificate"
+                                    style="max-width: 100%; max-height: 180px; border-radius: var(--radius-md); border: 1px solid var(--border-color); object-fit: contain;">
+                                <p style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">
+                                    <i class="fas fa-check-circle" style="color: var(--success-color);"></i> Certificate uploaded
+                                </p>
+                            </div>
+
+                            <!-- File Input -->
+                            <label for="certificateInput" class="btn btn-secondary"
+                                style="width: 100%; text-align: center; cursor: pointer; margin-bottom: var(--spacing-sm); display: block;">
+                                <i class="fas fa-upload"></i> Choose Image
+                            </label>
+                            <input type="file" id="certificateInput" accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
+                                style="display: none;">
+
+                            <button type="button" id="uploadCertificateBtn" class="btn btn-primary"
+                                style="width: 100%; display: none;">
+                                <i class="fas fa-cloud-upload-alt"></i> Upload Certificate
+                            </button>
+
+                            <div id="certificateStatus" style="margin-top: var(--spacing-sm); font-size: 12px;"></div>
+                        </div>
+
                         <!-- Smart Filters -->
                         <div style="margin-top: var(--spacing-xl); padding-top: var(--spacing-lg); border-top: 1px solid var(--border-color);">
                             <h4 style="margin-bottom: var(--spacing-md); display: flex; align-items: center; gap: 6px;">
@@ -250,8 +285,74 @@
         // Initialize page
         document.addEventListener('DOMContentLoaded', async () => {
             // Check authentication and load profile
-            await checkAuth();
+            const authData = await checkAuth();
+            initCertificateUpload(authData);
         });
+
+        // Certificate upload feature
+        function initCertificateUpload(authData) {
+            const fileInput = document.getElementById('certificateInput');
+            const uploadBtn = document.getElementById('uploadCertificateBtn');
+            const statusEl = document.getElementById('certificateStatus');
+            const previewEl = document.getElementById('certificatePreview');
+            const certImg = document.getElementById('certificateImg');
+
+            // Show existing certificate if present
+            if (authData && authData.user && authData.user.certificate) {
+                certImg.src = authData.user.certificate;
+                previewEl.style.display = 'block';
+            }
+
+            if (!fileInput || !uploadBtn) return;
+
+            // Show upload button when a file is chosen
+            fileInput.addEventListener('change', () => {
+                if (fileInput.files && fileInput.files[0]) {
+                    uploadBtn.style.display = 'block';
+                    statusEl.textContent = `Selected: ${fileInput.files[0].name}`;
+                    statusEl.style.color = 'var(--text-secondary)';
+                } else {
+                    uploadBtn.style.display = 'none';
+                    statusEl.textContent = '';
+                }
+            });
+
+            // Handle upload
+            uploadBtn.addEventListener('click', async () => {
+                const file = fileInput.files[0];
+                if (!file) return;
+
+                uploadBtn.disabled = true;
+                uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Uploading...';
+                statusEl.textContent = '';
+
+                try {
+                    const formData = new FormData();
+                    formData.append('certificate', file);
+
+                    const response = await fetch('/api/upload-certificate', {
+                        method: 'POST',
+                        body: formData,
+                    });
+                    const result = await response.json();
+
+                    if (result.success) {
+                        certImg.src = result.certificate;
+                        previewEl.style.display = 'block';
+                        statusEl.innerHTML = '<span style="color: var(--success-color);"><i class="fas fa-check-circle"></i> Certificate uploaded successfully!</span>';
+                        fileInput.value = '';
+                        uploadBtn.style.display = 'none';
+                    } else {
+                        statusEl.innerHTML = `<span style="color: var(--danger-color);"><i class="fas fa-times-circle"></i> ${result.error || 'Upload failed'}</span>`;
+                    }
+                } catch (err) {
+                    statusEl.innerHTML = '<span style="color: var(--danger-color);"><i class="fas fa-times-circle"></i> Upload failed. Please try again.</span>';
+                } finally {
+                    uploadBtn.disabled = false;
+                    uploadBtn.innerHTML = '<i class="fas fa-cloud-upload-alt"></i> Upload Certificate';
+                }
+            });
+        }
     </script>
 </body>
 </html>
