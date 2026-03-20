@@ -95,11 +95,20 @@ CORS(app)
 def login_required(f):
     """Decorator to protect routes - redirect to login if not authenticated"""
     def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
+        if not is_session_authenticated():
             return jsonify({'error': 'Unauthorized'}), 401
         return f(*args, **kwargs)
     decorated_function.__name__ = f.__name__
     return decorated_function
+
+
+def is_session_authenticated() -> bool:
+    """Return True only for fully initialized OAuth sessions."""
+    return bool(
+        session.get('is_authenticated') is True
+        and session.get('user_id')
+        and session.get('user_email')
+    )
 
 # Helper function to load all jobs without date filtering
 def load_all_jobs():
@@ -163,6 +172,7 @@ def oauth_callback():
         session['user_picture'] = user['picture']
         session['user_created_at'] = user.get('created_at') if isinstance(user, dict) else None
         session['user_last_login'] = user.get('last_login') if isinstance(user, dict) else None
+        session['is_authenticated'] = True
         
         logging.info(f"User {user['email']} logged in successfully")
         
@@ -188,7 +198,7 @@ def logout():
 @app.route('/api/auth/user', methods=['GET'])
 def get_current_user():
     """Get current logged-in user info"""
-    if 'user_id' not in session:
+    if not is_session_authenticated():
         return jsonify({'authenticated': False})
 
     # Trust signed session cookie directly.
@@ -243,7 +253,7 @@ def index():
     """Serve main page - requires authentication"""
     try:
         # Check if user is authenticated
-        if 'user_id' not in session:
+        if not is_session_authenticated():
             return redirect('/login')
         return render_template('index.html')
     except Exception as e:
@@ -255,7 +265,7 @@ def dashboard():
     """Serve dashboard page - requires authentication"""
     try:
         # Check if user is authenticated
-        if 'user_id' not in session:
+        if not is_session_authenticated():
             return redirect('/login')
         return render_template('market-dashboard.html')
     except Exception as e:
